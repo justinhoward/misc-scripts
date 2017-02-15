@@ -1,0 +1,44 @@
+#!/usr/bin/env ruby
+require 'csv'
+require 'open3'
+
+trap('SIGINT') { exit }
+
+if ARGV.size < 2
+  STDERR.puts "Usage: #{File.basename($PROGRAM_NAME)} COLUMN COMMAND"
+  exit 1
+end
+
+column = ARGV[0].to_i - 1
+command = ARGV[1..-1]
+
+def process(command, row)
+  command.map do |part|
+    values = { '0' => row.to_csv }
+    row.each_with_index do |field, index|
+      values[(index + 1).to_s] = field
+    end
+    replace_variables(part, values)
+  end
+end
+
+def replace_variables(string, values)
+  string.to_s.gsub(/\{\s*(\S)\s*\}/) { values[$1] }
+end
+
+out = CSV.new($stdout)
+CSV.new($stdin).each do |row|
+  Open3.popen3(*process(command, row)) do |stdin, stdout, stderr|
+    Thread.new { stderr.each_line { |l| STDERR.puts l } }
+    begin
+      stdin.write(row[column])
+      stdin.close
+    rescue Errno::EPIPE
+      # Some commands exit immediately, closing stdin
+      # Checking closed? does not work since it happens asynchronously
+      # Recover if that happens
+    end
+    row[column] = stdout.each_line.first.chomp
+    out << row
+  end
+end

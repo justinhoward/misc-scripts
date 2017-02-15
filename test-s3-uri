@@ -1,0 +1,55 @@
+#!/usr/bin/env sh
+
+usage() {
+  cat >&2 <<EOF
+Usage: $(basename "$0") [URI] [OPTIONS]"
+
+URI is a single S3 URI to check
+
+URIs can also be piped, one per line from STDIN.
+OPTIONS are passed on directly to the aws s3 ls command.
+EOF
+}
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+while getopts ':h' opt; do
+  case "$opt" in
+    h) usage && exit ;;
+  esac
+done
+
+check() {
+  result="$(aws s3 ls "$@")"
+  if [ -n "$result" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+if [ -t 0 ]; then
+  [ "$#" -eq 0 ] && usage_error "Missing URI"
+  check "$@"
+  exit "$?"
+else
+  status=0
+  while read -r url; do
+    if check "$url" "$@"; then
+      msg "[pass] $url"
+    else
+      status=1
+      msg "[fail] $url"
+    fi
+  done
+
+  exit "$status"
+fi

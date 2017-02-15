@@ -1,0 +1,42 @@
+#!/usr/bin/env ruby
+require 'uri'
+
+S3_DOMAIN = 's3.amazonaws.com'.freeze
+
+def convert(uri)
+  parts = URI.parse(uri)
+  return '' if parts.scheme.to_s.empty?
+
+  if parts.scheme.start_with?('http')
+    if parts.host == S3_DOMAIN
+      bucket = parts.path.split('/')[1]
+      path = "/#{parts.path.split('/')[2..-1].join('/')}"
+    else
+      regex = /([a-z0-9_\-.]+).#{Regexp.escape(S3_DOMAIN)}/i
+      matches = parts.host.match(regex)
+      raise "Invalid asset URL #{uri}" if matches.nil?
+      bucket = matches[1]
+      path = parts.path
+    end
+  elsif parts.scheme == 's3'
+    bucket = parts.host
+    path = parts.path
+  else
+    raise "Invalid asset URL #{uri}"
+  end
+
+  "s3://#{bucket}#{URI.decode(path)}"
+end
+
+if $stdin.tty?
+  if ARGV.size != 1
+    STDERR.puts "Usage: #{File.basename($PROGRAM_NAME)} URL"
+    exit 1
+  end
+
+  puts convert(ARGV[0])
+else
+  while line = $stdin.gets do
+    puts convert(line.strip)
+  end
+end

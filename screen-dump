@@ -1,0 +1,6 @@
+#!/bin/bash
+
+while read -r line; do
+  echo "${line:0:63}" | hexdump -C | head -n4
+  sleep 0.5
+done < /dev/urandom
