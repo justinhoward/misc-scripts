@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: delete-eb-versions [OPTIONS] APPLICATION_NAME...
+Delete old elastic beanstalk application versions
+
+OPTIONS
+-c       Count - The number of versions to keep for each application (default 10)
+-h       Help - Show this help message
+-n       Dry run - Print instead of actually deploying the stack
+-p       Profile - An AWS CLI configuration profile
+-r       Region - An AWS region to deploy to
+-y       No Confirm - Don't ask for confirmation before deleting
+EOF
+}
+
+while getopts c::hnp:r:y opt; do
+  case "$opt" in
+    c) count="$OPTARG" ;;
+    h) usage && exit ;;
+    n) dry_run=1 ;;
+    p) profile="$OPTARG" ;;
+    r) region="$OPTARG" ;;
+    y) no_confirm=1 ;;
+    \?) usage_error "Invalid option -${OPTARG}" ;;
+    :) usage_error "Missing value for option -${OPTARG}" ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+[ "$#" -gt 0 ] || usage_error "List at least one application"
+
+versions=()
+[ -z "$count" ] && count=10
+default_args=()
+[ -n "$profile" ] && default_args+=( --profile "$profile" )
+[ -n "$region" ] && default_args+=( --region "$region" )
+
+delete_selected() {
+  for (( i=0; i < "${#versions[@]}"; i += 2 )); do
+    application_name="${versions[i]}"
+    version="${versions[i + 1]}"
+    echo "${application_name} ${version}"
+
+    if [ -z "$dry_run" ]; then
+      aws elasticbeanstalk delete-application-version \
+        --application-name "$application_name" \
+        "${default_args[@]}" \
+        --version-label "$version"
+    fi
+  done
+}
+
+for application_name in "$@"; do
+  i=0
+  while read -r version; do
+    [ "$i" -lt "$count" ] && i="$(( i + 1 ))" && continue
+
+    if [ -z "$no_confirm" ]; then
+      echo "${application_name} ${version}" 1>&2
+    fi
+    versions+=( "$application_name" "$version" )
+  done < <(
+    aws elasticbeanstalk describe-application-versions \
+      "${default_args[@]}" \
+      --application-name "$application_name" \
+      --query 'ApplicationVersions[*].[VersionLabel]' \
+      --output text
+  )
+done
+
+if [ "${#versions[@]}" -eq 0 ]; then
+  echo 'No versions to delete' 1>&2
+  exit 0
+fi
+
+if [ -n "$no_confirm" ]; then
+  confirm=y
+else
+  printf 'Delete these versions? [y/n]: '
+  read -r confirm
+fi
+
+if [ "$confirm" = "y" ]; then
+  delete_selected
+else
+  exit 1
+fi
