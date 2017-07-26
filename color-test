@@ -1,0 +1,17 @@
+#!/usr/bin/env zsh
+
+colors=(
+	default
+	black
+	red
+	green
+	yellow
+	magenta
+	cyan
+	blue
+	white
+)
+
+for color in "${colors[@]}"; do
+	print -P "%F{$color}${(l:8:)color}%f %B%F{$color}bold%f%b %K{$color}background%k"
+done
