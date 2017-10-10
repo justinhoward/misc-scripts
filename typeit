@@ -10,7 +10,7 @@ while IFS= read -r line; do
         continue
     fi
     bol=0
-    sleep 0.05
+    sleep 0.0$(( RANDOM % 2 + 2))
   done
 
   if (( length == 0 )); then
