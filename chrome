@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+bins=(
+  google-chrome-stable
+)
+
+for bin in "${bins[@]}"; do
+  if command -v "$bin" > /dev/null 2>&1; then
+    exec "$bin" "$@"
+  fi
+done
+
+exit 1
