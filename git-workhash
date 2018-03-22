@@ -7,5 +7,5 @@ trap 'rm -f "$GIT_INDEX_FILE"' EXIT
 cp "$(git rev-parse --show-toplevel)/.git/index" "$GIT_INDEX_FILE"
 
 printf '%.9s-%.9s\n' \
-  "$(git add -A && git write-tree && git reset > /dev/null)" \
-  "$(git rev-parse HEAD)"
+  "$(git rev-parse HEAD)" \
+  "$(git add -A && git write-tree && git reset > /dev/null)"
