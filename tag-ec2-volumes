@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+usage() {
+  cat >&2 <<EOF
+Usage: tag-volumes [OPTIONS] [INSTANCE_ID]...
+Copy EC2 instance tags to its volumes
+
+OPTIONS
+-a       All - Tag all volumes in the account/region
+-h       Help - Show this help message
+-n       Dry run - Print comands to be run
+-p       Profile - An AWS CLI configuration profile
+-r       Region - An AWS region
+EOF
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+while getopts :ahp:r:n opt; do
+  case "$opt" in
+    a) all=1 ;;
+    h) usage && exit ;;
+    n) dry_run=1 ;;
+    p) profile="$OPTARG" ;;
+    r) region="$OPTARG" ;;
+    \?) usage_error "Invalid option -${OPTARG}" ;;
+    :) usage_error "Missing value for option -${OPTARG}" ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+
+[ -n "$profile" ] && aws_args+=( --profile "$profile" )
+[ -n "$region" ] && aws_args+=( --region "$region" )
+
+if [ -n "$all" ]; then
+  while read -ra instance_id; do
+    instance_ids+=( "$instance_id" )
+  done < <(
+    aws ec2 describe-instances \
+      --query 'Reservations[*].Instances[*].InstanceId' \
+      --output text \
+    "${aws_args[@]}"
+  )
+else
+  instance_ids=("$@")
+fi
+
+[ "${#instance_ids[@]}" -eq 0 ] && usage_error 'At least 1 INSTANCE_ID is required'
+
+for instance_id in "${instance_ids[@]}"; do
+  echo -n "$instance_id"
+
+  while read -r row; do
+    IFS=$'\t' read -ra tag_parts <<< "$row"
+    if [ "${tag_parts[0]}" == 'Name' ]; then
+      name="${tag_parts[1]}"
+    else
+      tags+=( "Key=${tag_parts[0]},Value=${tag_parts[1]}" )
+    fi
+  done < <(
+    aws ec2 describe-tags \
+    --filter "Name=resource-id,Values=${instance_id}" \
+    --query "Tags[?contains(Key, \`aws:\`)==\`false\`].[Key,Value]" \
+    --output text \
+    "${aws_args[@]}"
+  )
+
+  while read -r row; do
+    IFS=$'\t' read -ra volume_parts <<< "$row"
+    volume_tags=(
+      "Key=Name,Value=${name}-$(basename "${volume_parts[1]}")"
+      "${tags[@]}"
+    )
+
+    echo -n " ${volume_parts[0]}"
+    if [ -z "$dry_run" ]; then
+      aws ec2 create-tags \
+        --resources "${volume_parts[0]}" \
+        --tags "${volume_tags[@]}" \
+        "${aws_args[@]}"
+    fi
+  done < <(
+    aws ec2 describe-volumes \
+    --filter "Name=attachment.instance-id,Values=${instance_id}" \
+    --query 'Volumes[].[VolumeId,Attachments[0].Device]' \
+    --output text \
+    "${aws_args[@]}"
+  )
+  echo
+done
