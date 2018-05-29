@@ -2,7 +2,7 @@
 
 usage() {
   cat >&2 <<EOF
-Usage: tag-volumes [OPTIONS] [INSTANCE_ID]...
+Usage: tag-ec2-volumes [OPTIONS] [INSTANCE_ID]...
 Copy EC2 instance tags to its volumes
 
 OPTIONS
