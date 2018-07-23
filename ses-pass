@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+
+# These variables are required to calculate the SMTP password.
+VERSION='\x02'
+MESSAGE='SendRawEmail'
+
+error_exit() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: $(basename "$0") [OPTIONS]
+Create SMTP passwords for IAM secret keys
+
+STDIN
+If STDIN is a tty, a prompt will ask for a secret key.
+If STDIN is not a tty (pipes, etc), each line in STDIN will be treated as an
+individual secret key. The STDOUT lines will correspond to the input lines.
+
+OPTIONS
+  -b          Base64 encode passwords
+  -h          Show this help message
+EOF
+}
+
+while getopts :bh opt; do
+  case "$opt" in
+    b) base64=1 ;;
+    h) usage && exit;;
+    \?) usage_error "Invalid option -${OPTARG}";;
+    :) usage_error "Option -${OPTARG} requires an argument" ;;
+  esac
+done
+
+password() {
+  secret_key="$1"
+  pass="$(
+    (echo -en $VERSION; echo -n $MESSAGE \
+     | openssl dgst -sha256 -hmac "$secret_key" -binary) \
+     | openssl enc -base64
+  )"
+
+  if [ -n "$base64" ]; then
+    echo -n "$pass" | openssl enc -base64
+  else
+    echo "$pass"
+  fi
+}
+
+
+# Check to see if OpenSSL is installed. If not, exit with errors.
+if ! [[ -x "$(command -v openssl)" ]]; then
+  error_exit "OpenSSL isn't installed"
+fi
+
+if [ -t 0 ]; then
+  read -rsp 'AWS Secret Access Key: ' key
+  echo
+  password "$key"
+else
+  while read -r key; do
+    password "$key"
+  done
+fi
