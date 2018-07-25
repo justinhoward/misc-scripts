@@ -54,6 +54,7 @@ fi
 
 for instance_id in "${instance_ids[@]}"; do
   echo -n "$instance_id"
+  tags=()
 
   while read -r row; do
     IFS=$'\t' read -ra tag_parts <<< "$row"
