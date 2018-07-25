@@ -1,0 +1,69 @@
+#!/usr/bin/env sh
+
+BASE_URL='https://onetimesecret.com'
+SHARE_PATH='/api/v1/share'
+SECRET_PATH='/secret'
+
+error_exit() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: $(basename "$0") [OPTIONS] [SECRET]
+Create a onetimesecret.com secret
+
+SECRET
+The secret. For most cases, prefer STDIN since it is more secure. If given,
+overrides STDIN.
+
+STDIN
+Takes a secret from STDIN. Note that if you're entering the secret from a tty,
+you'll need to use ^D to finish typing.
+
+OPTIONS
+  -h          Show this help message
+  -t TTL      Secret TTL seconds (default 604800, 7 days)
+EOF
+}
+
+while getopts :ht: opt; do
+  case "$opt" in
+    h) usage && exit;;
+    t) ttl="${OPTARG}" ;;
+    \?) usage_error "Invalid option -${OPTARG}";;
+    :) usage_error "Option -${OPTARG} requires an argument" ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+[ -z "$ttl" ] && ttl='604800'
+
+if [ "$#" -gt 0 ]; then
+  secret="$1"
+else
+  while read -r line; do
+    secret="$(printf '%s\n%s' "$secret" "$line")"
+  done
+fi
+
+key="$(
+  curl \
+  -s \
+  "${BASE_URL}${SHARE_PATH}" \
+  -F "secret=${secret}" \
+  -F "ttl=${ttl}" \
+  | grep -oE '"secret_key":"[a-z0-9]+"' \
+  | cut -d':' -f2 \
+  | grep -oE '[a-z0-9]+'
+)"
+
+echo "${BASE_URL}${SECRET_PATH}/${key}"
