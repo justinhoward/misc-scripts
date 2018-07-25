@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+error_exit() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: $(basename "$0") [OPTIONS] [USERNAME...]
+Create a onetimesecret.com secret from a new IAM key
+
+USERNAME
+If given, a new IAM key is created for each USERNAME and converted to a
+onetimesecret.com secret link. Overrides STDIN.
+
+STDIN
+Takes a username per line. An alternative input to the USERNAME argument.
+
+OPTIONS
+  -h          Show this help message
+  -p          AWS CLI profile
+  -t TTL      Secret TTL seconds (default 604800, 7 days)
+EOF
+}
+
+while getopts :hp:t: opt; do
+  case "$opt" in
+    h) usage && exit;;
+    p) profile="${OPTARG}" ;;
+    t) ttl="${OPTARG}" ;;
+    \?) usage_error "Invalid option -${OPTARG}";;
+    :) usage_error "Option -${OPTARG} requires an argument" ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+aws_args=()
+[ -n "$profile" ] && aws_args+=(-p "$profile")
+
+ots_args=()
+[ -n "$ttl" ] && ots_args+=(-t "$ttl")
+
+if [ "$#" -gt 0 ]; then
+  usernames=("$@")
+else
+  while read -r username; do
+    usernames+=("$username")
+  done
+fi
+
+for username in "${usernames[@]}"; do
+  read -ra key_parts <<< "$(
+    aws iam create-access-key \
+    --user-name "$username" \
+    --query 'AccessKey.[AccessKeyId,SecretAccessKey]' \
+    --output text \
+    "${aws_args[@]}"
+  )"
+
+  if [ "${#key_parts[@]}" -lt 2 ]; then
+    error_exit "Could not create Access Key for ${username}"
+  fi
+
+  ots "${ots_args[@]}" <<EOF
+Username: ${username}
+Access Key ID: ${key_parts[0]}
+Secret Access Key: ${key_parts[1]}
+EOF
+done
