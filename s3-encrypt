@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+error_exit() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: $(basename "$0") [OPTIONS] BUCKET [PREFIX]
+Encrypt all S3 objects in a bucket or for a prefix
+
+OPTIONS
+  -a          KMS Key Alias. For aws:kms encryption, the key alias without
+              the "alias/" prefix.
+  -h          Show this help message
+  -k          KMS Key ID. For aws:kms encryption, the KMS key ID
+  -p          Profile. An AWS CLI profile name
+  -r          Region. An AWS region
+  -t          Encryption Type. AES256 (default) or aws:kms
+EOF
+}
+
+while getopts :a:hk:p:r:t: opt; do
+  case "$opt" in
+    a) key_alias="${OPTARG}" ;;
+    h) usage && exit;;
+    k) key_id="${OPTARG}" ;;
+    p) profile="${OPTARG}" ;;
+    r) region="${OPTARG}" ;;
+    t) encryption_type="${OPTARG}" ;;
+    \?) usage_error "Invalid option -${OPTARG}";;
+    :) usage_error "Option -${OPTARG} requires an argument" ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+bucket="$1"
+prefix="$2"
+[ -n "$bucket" ] || usage_error 'BUCKET is required'
+[ -n "$encryption_type" ] || encryption_type='AES256'
+
+if [ "$encryption_type" == 'aws:kms' ] && [ -z "$key_alias" ] && [ -z "$key_id" ]; then
+  usage_error 'Key ID or key alias is required for aws:kms encryption'
+fi
+
+if [ -n "$key_alias" ] && [ -n "$key_id" ]; then
+  usage_error 'Cannot give both key alias and key ID'
+fi
+
+aws_opts=()
+[ -n "$profile" ] && aws_opts+=(--profile "$profile")
+[ -n "$region" ] && aws_opts+=(--region "$region")
+
+if [ -n "$key_alias" ]; then
+  key_id="$(aws kms describe-key \
+    --key-id "alias/${key_alias}" \
+    --output text \
+    --query 'KeyMetadata.KeyId' \
+    "${aws_opts[@]}"
+  )"
+fi
+
+list_opts=()
+copy_opts=()
+[ -n "$prefix" ] && list_opts+=(--prefix "$prefix")
+[ -n "$key_id" ] && copy_opts+=(--ssekms-key-id "$key_id")
+
+while read -r key; do
+  echo "$key"
+  aws s3api copy-object \
+    --bucket "$bucket" \
+    --key "$key" \
+    --copy-source "${bucket}/${key}" \
+    --server-side-encryption "$encryption_type" \
+    "${copy_opts[@]}" \
+    "${aws_opts[@]}" \
+    > /dev/null
+done < <(
+  aws s3api list-objects \
+    --bucket "$bucket" \
+    --output text \
+    --query 'Contents[*].[Key]' \
+    "${list_opts[@]}" \
+    "${aws_opts[@]}"
+)
