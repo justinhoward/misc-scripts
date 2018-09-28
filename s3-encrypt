@@ -21,17 +21,19 @@ OPTIONS
               the "alias/" prefix.
   -h          Show this help message
   -k          KMS Key ID. For aws:kms encryption, the KMS key ID
+  -n          Dry run. List objects only, no encryption.
   -p          Profile. An AWS CLI profile name
   -r          Region. An AWS region
   -t          Encryption Type. AES256 (default) or aws:kms
 EOF
 }
 
-while getopts :a:hk:p:r:t: opt; do
+while getopts :a:hk:np:r:t: opt; do
   case "$opt" in
     a) key_alias="${OPTARG}" ;;
     h) usage && exit;;
     k) key_id="${OPTARG}" ;;
+    n) dry_run=1 ;;
     p) profile="${OPTARG}" ;;
     r) region="${OPTARG}" ;;
     t) encryption_type="${OPTARG}" ;;
@@ -75,6 +77,8 @@ copy_opts=()
 
 while read -r key; do
   echo "$key"
+  [ -n "$dry_run" ] && continue
+
   aws s3api copy-object \
     --bucket "$bucket" \
     --key "$key" \
