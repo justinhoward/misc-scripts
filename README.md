@@ -8,5 +8,5 @@ workflow. Also, just some fun stuff.
 Put "$HOME/bin" in your path and run
 
 ```sh
-ln -s /path/to/misc-scripts/* ~/bin
+ln -s /path/to/misc-scripts/bin/* ~/bin
 ```
