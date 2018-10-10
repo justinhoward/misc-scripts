@@ -5,8 +5,15 @@ workflow. Also, just some fun stuff.
 
 ## Installation
 
-Put "$HOME/bin" in your path and run
+Run `make install` to copy scripts into your `~/bin` directory. You'll need to
+have that in your path.
+
+Alternatively, run `make link` to create symbolic links to this repository
+instead of copying files.
+
+To install or link to a different directory, set `INSTALL_DIR`.
 
 ```sh
-ln -s /path/to/misc-scripts/bin/* ~/bin
+# Installs scripts to /usr/local/bin
+make install INSTALL_DIR=/usr/local
 ```
