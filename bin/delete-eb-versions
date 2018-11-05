@@ -12,6 +12,7 @@ Usage: delete-eb-versions [OPTIONS] APPLICATION_NAME...
 Delete old elastic beanstalk application versions
 
 OPTIONS
+-a       All - Delete versions for all applications
 -c       Count - The number of versions to keep for each application (default 10)
 -h       Help - Show this help message
 -n       Dry run - Print instead of actually deploying the stack
@@ -21,8 +22,9 @@ OPTIONS
 EOF
 }
 
-while getopts c::hnp:r:y opt; do
+while getopts ac::hnp:r:y opt; do
   case "$opt" in
+    a) all=1 ;;
     c) count="$OPTARG" ;;
     h) usage && exit ;;
     n) dry_run=1 ;;
@@ -34,8 +36,6 @@ while getopts c::hnp:r:y opt; do
   esac
 done
 shift $((OPTIND - 1))
-
-[ "$#" -gt 0 ] || usage_error "List at least one application"
 
 versions=()
 [ -z "$count" ] && count=10
@@ -58,12 +58,26 @@ delete_selected() {
   done
 }
 
-for application_name in "$@"; do
+if [ -n "$all" ]; then
+  while read -r application; do
+    applications+=("$application")
+  done < <(
+    aws elasticbeanstalk describe-applications \
+      "${default_args[@]}" \
+      --query "Applications[*].[ApplicationName]" \
+      --output text
+  )
+else
+  [ "$#" -gt 0 ] || usage_error "List at least one application"
+  applications=("$@")
+fi
+
+for application_name in "${applications[@]}"; do
   i=0
   while read -r version; do
     [ "$i" -lt "$count" ] && i="$(( i + 1 ))" && continue
 
-    if [ -z "$no_confirm" ]; then
+    if [ -z "$no_confirm" ] && [ -z "$dry_run" ]; then
       echo "${application_name} ${version}" 1>&2
     fi
     versions+=( "$application_name" "$version" )
@@ -81,7 +95,7 @@ if [ "${#versions[@]}" -eq 0 ]; then
   exit 0
 fi
 
-if [ -n "$no_confirm" ]; then
+if [ -n "$no_confirm" ] || [ -n "$dry_run" ]; then
   confirm=y
 else
   printf 'Delete these versions? [y/n]: '

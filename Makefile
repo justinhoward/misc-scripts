@@ -19,6 +19,7 @@ $(INSTALL_BIN_DIR)/%: $(SRC_BIN_DIR)/%
 uninstall:
 	rm -f $(INSTALLED_BINS)
 
+.PHONY: info
 info:
 	$(info INSTALL_DIR: $(INSTALL_DIR))
 	$(info INSTALL_BIN_DIR: $(INSTALL_BIN_DIR))
