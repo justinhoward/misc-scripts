@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+
+error() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: ec2-tags [OPTIONS] [INSTANCE_ID]...
+
+Get tags for EC2 instances
+
+  $ ec2-tags -t Name -t Owner i-123456abcdef
+  i-123456abcdef web engineering
+
+OPTIONS
+  -a          Select all instances
+  -h          Show this help message
+  -p profile  An AWS CLI configuration profile. Multiple allowed.
+  -r region   An AWS region. Multiple allowed.
+  -R          Search all AWS regions. Overrides -r.
+  -t          Tags. Multiple allowed. Defaults to "Name"
+EOF
+}
+
+while getopts :hp:r:Rt: opt; do
+  case "$opt" in
+    h) usage && exit;;
+    p) profiles+=("$OPTARG");;
+    r) regions+=("$OPTARG");;
+    R) all_regions=1;;
+    t) tags+=("$OPTARG");;
+    \?) usage_error "Invalid option -${OPTARG}";;
+    :) usage_error "Option -${OPTARG} requires an argument" ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+instance_ids=("$@")
+
+if ! command -v aws >/dev/null 2>&1; then
+  error 'The aws CLI is required'
+fi
+
+[ "${#tags[@]}" = 0 ] && tags=('Name')
+
+query="Reservations[*].Instances[*].["
+query+="InstanceId"
+
+for tag in "${tags[@]}"; do
+  query+=",Tags[?Key=='${tag}'] | [0].Value"
+done
+query+="]"
+
+in_array() {
+  local i needle="$1"
+  shift
+  for i; do
+    [ "$i" == "$needle" ] && return 0
+  done
+
+  return 1
+}
+
+search() {
+  local profile="$1"
+  local region="$2"
+
+  aws_cmd=(aws ec2 describe-instances \
+    --output text \
+    --query "$query"
+  )
+
+  [ -n "$profile" ] && aws_cmd+=(--profile "$profile")
+  [ -n "$region" ] && aws_cmd+=(--region "$region")
+
+  while read -r line; do
+    read -ra parts <<< "$line"
+    id="${parts[0]}"
+
+    if [ "${#instance_ids[@]}" = 0 ] || in_array "$id" "${instance_ids[@]}"; then
+      printf '%s\n' "${parts[*]}"
+    fi
+  done < <("${aws_cmd[@]}")
+}
+
+[ "${#profiles[@]}" = 0 ] && profiles+=('')
+[ "${#regions[@]}" = 0 ] && regions+=('')
+
+if [ -n "$all_regions" ]; then
+  regions=()
+  while read -r region; do
+    regions+=("$region")
+  done < <( \
+    aws ec2 describe-regions --output text --query 'Regions[*].[RegionName]' \
+  )
+fi
+
+for profile in "${profiles[@]}"; do
+  for region in "${regions[@]}"; do
+    search "$profile" "$region"
+  done
+done
