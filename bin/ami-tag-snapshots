@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+
+error() {
+  printf '%s\n' "$*" >&2
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: ami-tag-snapshots [OPTIONS] [AMI_ID...]
+
+Tag all snapshots for an AWS EC2 AMI
+
+  $ ami-tag-snapshots ami-024d13245d9844dc5
+
+OPTIONS
+  -a          All. Tag all AMIs
+  -h          Show this help message
+  -n          Dry run. Do not tag snapshots
+  -p profile  An AWS CLI configuration profile
+  -r region   An AWS region
+EOF
+}
+
+while getopts :ahnp:r: opt; do
+  case "$opt" in
+    a) all=1;;
+    h) usage && exit;;
+    n) dry_run=1;;
+    p) profile="$OPTARG";;
+    r) region="$OPTARG";;
+    \?) usage_error "Invalid option -${OPTARG}";;
+    :) usage_error "Option -${OPTARG} requires an argument" ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+ami_ids=("$@")
+
+if ! command -v aws >/dev/null 2>&1; then
+  error 'The aws CLI is required'
+fi
+
+if [ -z "$all" ] && [ "${#ami_ids}" -eq 0 ]; then
+  usage_error 'Specify at least 1 AMI_ID'
+fi
+
+default_args=()
+[ -n "$profile" ] && default_args+=(--profile "$profile")
+[ -n "$region" ] && default_args+=(--region "$region")
+
+in_array() {
+  local i needle="$1"
+  shift
+  for i; do
+    [ "$i" == "$needle" ] && return 0
+  done
+
+  return 1
+}
+
+write_tags() {
+  [ "${#resources[@]}" -eq 0 ] && return
+  if [ -z "$all" ] && ! in_array "$image_id" "${ami_ids[@]}"; then
+    return
+  fi
+
+  echo "$image_id" "${tags[@]}"
+  if [ -z "$dry_run" ]; then
+    aws ec2 create-tags \
+      --resources "${resources[@]}" \
+      --tags "${tags[@]}" \
+      "${default_args[@]}"
+  fi
+}
+
+# The describe-images command gets results in the format:
+# #	ami-318f5d4b
+# TagName tag-value
+# TagName2 tag-value-2
+# $ snap-0eafc3ad524de8233
+# $	snap-08b31aac623a66ebf
+while read -r result; do
+  read -ra parts <<< "$result"
+
+  if [ "${parts[0]}" == '#' ]; then
+    write_tags
+    image_id="${parts[1]}"
+    tags=()
+    resources=()
+  elif [ "${parts[0]}" == '$' ]; then
+    resources+=("${parts[1]}")
+  else
+    tags+=("Key=${parts[0]},Value=${parts[1]}")
+  fi
+done < <(
+  aws ec2 describe-images \
+  --owners self \
+  --output text \
+  --query 'Images[*].[[`#`,ImageId],Tags,BlockDeviceMappings[*].Ebs.[`$`,SnapshotId]]' \
+  "${default_args[@]}" \
+)
+
+write_tags
