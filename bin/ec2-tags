@@ -45,6 +45,7 @@ done
 shift $((OPTIND - 1))
 
 instance_ids=("$@")
+found_instance_ids=()
 
 if ! command -v aws >/dev/null 2>&1; then
   error 'The aws CLI is required'
@@ -87,6 +88,7 @@ search() {
     id="${parts[0]}"
 
     if [ "${#instance_ids[@]}" = 0 ] || in_array "$id" "${instance_ids[@]}"; then
+      found_instance_ids+=("$id")
       printf '%s\n' "${parts[*]}"
     fi
   done < <("${aws_cmd[@]}")
@@ -109,3 +111,9 @@ for profile in "${profiles[@]}"; do
     search "$profile" "$region"
   done
 done
+
+# Print missing instance IDs
+echo "${instance_ids[@]}" "${found_instance_ids[@]}" \
+  | xargs -n1 \
+  | sort \
+  | uniq -u
