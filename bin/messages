@@ -1,3 +1,0 @@
-#!/usr/bin/env sh
-
-exec chrome --app=https://messages.android.com
