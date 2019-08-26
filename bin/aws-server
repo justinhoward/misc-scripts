@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+usage() {
+  cat >&2 <<USAGE
+Usage: aws-server PROFILE
+USAGE
+}
+
+[ -z "$1" ] && usage && exit 1
+
+profile="$1"
+exec aws-vault exec --server "$profile" -- sh -c "echo 'Connected to $profile...' && sleep infinity"
