@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+error_exit() {
+  msg "$@"
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+verbose() {
+  [ -n "$verbose" ] && msg "$@"
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: kms-encrypt [OPTIONS] KMS_KEY_ALIAS
+
+Encrypt a value with KMS
+
+  $ kms-encrypt app-production
+  plaintext: <enter value>
+
+  $ kms-encrypt app-production < key.pem
+
+OPTIONS
+  -B          Do not Base64 encode the result
+  -h          Show this help message
+  -p profile  An AWS CLI configuration profile. Multiple allowed.
+  -r region   An AWS region. Multiple allowed.
+EOF
+}
+
+while getopts :Bhp:r:v opt; do
+  case "$opt" in
+    B) no_base64=1 ;;
+    h) usage && exit ;;
+    p) profile="$OPTARG" ;;
+    r) region="$OPTARG" ;;
+    v) verbose=1 ;;
+    \?) usage_error "Invalid option -${OPTARG}";;
+    :) usage_error "Option -${OPTARG} requires an argument" ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+if [ $# -ne 1 ]; then
+  usage_error 'Expected a single KMS_KEY_ALIAS argument'
+fi
+
+if ! command -v aws >/dev/null 2>&1; then
+  error_exit 'The aws CLI is required'
+fi
+
+if [ -n "$no_base64" ] && ! command -v base64 >/dev/null 2>&1; then
+  usage_error 'The base64 command is required for the -B option'
+fi
+
+alias="$1"
+[ -n "$profile" ] && common_args+=(--profile "$profile")
+[ -n "$region" ] && common_args+=(--region "$region")
+
+key_id=$( \
+  aws kms describe-key \
+  "${common_args[@]}" \
+  --key-id "alias/${alias}" \
+  --output text \
+  --query KeyMetadata.KeyId
+)
+
+verbose "Profile: ${profile}"
+verbose "Region: ${region}"
+verbose "Key ID: ${key_id}"
+
+[ -n "$key_id" ] || error_exit "No KMS alias ${alias}"
+
+if [ -t 0 ]; then
+  verbose 'Reading one line from TTY'
+  read -rsp 'Plaintext: ' plaintext
+  msg
+else
+  verbose 'Reading from STDIN'
+  plaintext="$(cat)"
+fi
+
+ciphertext=$( \
+  aws kms encrypt \
+  "${common_args[@]}" \
+  --key-id "$key_id" \
+  --plaintext "$plaintext" \
+  --output text \
+  --query CiphertextBlob
+)
+
+if [ -n "$no_base64" ]; then
+  echo "$ciphertext" | base64 --decode
+else
+  echo "$ciphertext"
+fi
