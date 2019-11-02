@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+error_exit() {
+  msg "$@"
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+verbose() {
+  [ -n "$verbose" ] && msg "$@"
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: kms-decrypt [OPTIONS] [CIPHERTEXT]
+
+Encrypt a value with KMS
+
+  $ kms-decrypt AEjbjesdo=
+
+  $ kms-decrypt < key.pem
+
+CIPHERTEXT
+
+  The KMS-encrypted ciphertext to decrypt. If not given, the ciphertext will be
+  taken from STDIN.
+
+OPTIONS
+  -B          Not Base64 - Value is not base64 encoded
+  -f          Force Output - Force outputting plaintext to STDOUT
+  -h          Help - Show this help message
+  -p profile  Profile - An AWS CLI configuration profile
+  -r region   Region - An AWS region
+  -v          Verbose - Print verbose messaging
+EOF
+}
+
+while getopts :Bfhp:r:v opt; do
+  case "$opt" in
+    B) not_base64=1 ;;
+    f) force_stdout=1 ;;
+    h) usage && exit ;;
+    p) profile="$OPTARG" ;;
+    r) region="$OPTARG" ;;
+    v) verbose=1 ;;
+    \?) usage_error "Invalid option -${OPTARG}";;
+    :) usage_error "Option -${OPTARG} requires an argument" ;;
+  esac
+done
+
+shift $((OPTIND - 1))
+
+if [ $# -eq 0 ] && [ -t 0 ]; then
+  usage_error 'No ciphertext given'
+fi
+
+if [ $# -gt 1 ]; then
+  usage_error 'Expected a single CIPHERTEXT argument'
+fi
+
+if ! command -v aws >/dev/null 2>&1; then
+  error_exit 'The aws CLI is required'
+fi
+
+if [ -z "$not_base64" ] && ! command -v base64 >/dev/null 2>&1; then
+  usage_error 'The base64 command is required without the -B option'
+fi
+
+if [ -t 1 ] && [ -z "$force_stdout" ]; then
+  usage_error 'Refusing to output plaintext to STDOUT. Pipe to a file or use -f'
+fi
+
+ciphertext="$1"
+[ -n "$profile" ] && common_args+=(--profile "$profile")
+[ -n "$region" ] && common_args+=(--region "$region")
+
+verbose "Profile: ${profile:-(default)}"
+verbose "Region: ${region:-(default)}"
+
+if [ -n "$ciphertext" ]; then
+  get_ciphertext=(printf '%s' "$ciphertext")
+else
+  get_ciphertext=(cat)
+fi
+
+if [ -n "$not_base64" ]; then
+  decode=(cat)
+else
+  decode=(base64 --decode)
+fi
+
+aws kms decrypt \
+  "${common_args[@]}" \
+  --ciphertext-blob fileb://<("${get_ciphertext[@]}" | "${decode[@]}") \
+  --output text \
+  --query Plaintext \
+  | base64 --decode

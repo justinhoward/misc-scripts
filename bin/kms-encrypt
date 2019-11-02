@@ -30,11 +30,21 @@ Encrypt a value with KMS
 
   $ kms-encrypt app-production < key.pem
 
+KMS_KEY_ALIAS
+
+  The alias for the KMS key to encrypt with
+
+STDIN
+
+  If STDIN is a tty, it will prompt for plaintext input. Otherwise, the plaintext
+  will be taken from STDIN. This can be used to pipe plaintext into kms-encrypt.
+
 OPTIONS
-  -B          Do not Base64 encode the result
-  -h          Show this help message
-  -p profile  An AWS CLI configuration profile. Multiple allowed.
-  -r region   An AWS region. Multiple allowed.
+  -B          No Base64 - Do not Base64 encode the result
+  -h          Help - Show this help message
+  -p profile  Profile - An AWS CLI configuration profile
+  -r region   Region - An AWS region
+  -v          Verbose - Print verbose messaging
 EOF
 }
 
@@ -68,16 +78,16 @@ alias="$1"
 [ -n "$profile" ] && common_args+=(--profile "$profile")
 [ -n "$region" ] && common_args+=(--region "$region")
 
-key_id=$( \
+key_id="$( \
   aws kms describe-key \
   "${common_args[@]}" \
   --key-id "alias/${alias}" \
   --output text \
   --query KeyMetadata.KeyId
-)
+)"
 
-verbose "Profile: ${profile}"
-verbose "Region: ${region}"
+verbose "Profile: ${profile:-(default)}"
+verbose "Region: ${region:-(default)}"
 verbose "Key ID: ${key_id}"
 
 [ -n "$key_id" ] || error_exit "No KMS alias ${alias}"
@@ -85,20 +95,21 @@ verbose "Key ID: ${key_id}"
 if [ -t 0 ]; then
   verbose 'Reading one line from TTY'
   read -rsp 'Plaintext: ' plaintext
+  get_plaintext=(printf '%s' "$plaintext")
   msg
 else
   verbose 'Reading from STDIN'
-  plaintext="$(cat)"
+  get_plaintext=(cat)
 fi
 
-ciphertext=$( \
+ciphertext="$( \
   aws kms encrypt \
   "${common_args[@]}" \
   --key-id "$key_id" \
-  --plaintext "$plaintext" \
+  --plaintext fileb://<("${get_plaintext[@]}") \
   --output text \
   --query CiphertextBlob
-)
+)"
 
 if [ -n "$no_base64" ]; then
   echo "$ciphertext" | base64 --decode
