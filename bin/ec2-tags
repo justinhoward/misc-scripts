@@ -98,11 +98,16 @@ search() {
 [ "${#regions[@]}" = 0 ] && regions+=('')
 
 if [ -n "$all_regions" ]; then
+  [ -n "${profiles[0]}" ] && profile_args=(--profile "${profiles[0]}")
+
   regions=()
   while read -r region; do
     regions+=("$region")
   done < <( \
-    aws ec2 describe-regions --output text --query 'Regions[*].[RegionName]' \
+    aws ec2 describe-regions \
+      "${profile_args[@]}" \
+      --output text \
+      --query 'Regions[*].[RegionName]' \
   )
 fi
 
