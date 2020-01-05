@@ -45,7 +45,7 @@ OPTIONS
                 key_name: The name of the instance key pair
                 name: The value of the Name tag
                 launch_time: The timestamp of when the instance was launched
-                platform: "Windows" if a windows instance, otherwise blank
+                platform: "windows" if a windows instance, otherwise blank
                 private_dns: The private DNS name
                 private_ip: The private IP address
                 profile: The AWS CLI profile used to find the instance
@@ -132,17 +132,17 @@ shift $((OPTIND - 1))
 declare -A column_map=(
   [ami]="ImageId"
   [instance_id]="InstanceId"
-  [key_name]="KeyName"
+  [key_name]="KeyName || \`\`"
   [launch_time]="LaunchTime"
-  [name]="Tags[?Key=='Name'] | [0].Value"
-  [platform]="Platform"
+  [name]="Tags[?Key=='Name'] | [0].Value || \`\`"
+  [platform]="Platform || \`\`"
   [private_dns]="PrivateDnsName"
   [private_ip]="PrivateIpAddress"
-  [public_dns]="PublicDnsName"
-  [public_ip]="PublicIpAddress"
-  [subnet_id]="SubnetId"
+  [public_dns]="PublicDnsName || \`\`"
+  [public_ip]="PublicIpAddress || \`\`"
+  [subnet_id]="SubnetId || \`\`"
   [state]="State.Name"
-  [vpc_id]="VpcId"
+  [vpc_id]="VpcId || \`\`"
 )
 
 set_all_regions() {
@@ -178,7 +178,7 @@ set_query() {
   query+="${column_map[name]}"
   for col in "${split[@]}"; do
     if [[ "$col" == "tag:"* ]]; then
-      mapped="Tags[?Key=='${col#tag:}'] | [0].Value"
+      mapped="Tags[?Key=='${col#tag:}'] | [0].Value || \`\`"
     elif [ "$col" = profile ]; then
       mapped="\`$profile\`"
     elif [ "$col" = region ]; then
