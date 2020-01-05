@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+set -f
+
+usage() {
+  cat >&2 <<EOF
+Usage: ssmc [OPTIONS] [NAME...]
+Systems Manager Connect
+
+Connect to an EC2 instance via AWS SSM session manager
+
+EXAMPLES
+
+$ ssmc production web
+Starting session with SessionId: justin-0746d171d9f3869c1
+sh-4.2$
+
+$ ssmc web
+1) production-web
+2) staging-web
+> 2
+Starting session with SessionId: justin-0746d171d9f3869c1
+sh-4.2$
+
+NAME
+A word to search for in the EC2 instance Name tag. If multiple are given, they
+will be ANDed together.
+
+OPTIONS
+-c COLUMNS   Columns - A comma-separated list of columns to display.
+               Defaults to "name". See "ec2-search -h" for more info.
+-f FILTERS    Filters - A filter for the native aws ec2 command.
+                The format is "Name=<filter>,Values=<value>,<value>"
+                Allows multiple instances of -f.
+                See "aws ec2 describe-instances help" for a full list.
+-h           Help - Show this help message
+-l           Show List - Force printing the list even for only 1 option
+-n           Dry run - Print the matching instance ID instead of connecting
+-p PROFILE   Profile - An AWS CLI profile. Allows multiple.
+-r REGION    Region - An AWS region. Allows multiple.
+-R           All regions - Search all AWS regions
+-s           Select - Select a number without showing the list
+-t NAME=VAL  Tag - Tag to search for. Multiples can be specified and will be
+               ANDed together.
+-v           Verbose - Print verbose messaging
+EOF
+}
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+verbose() {
+  [ -n "$verbose" ] && msg "$@"
+}
+
+error_exit() {
+  msg "$@"
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+print_run() {
+  verbose "$@"
+  "$@"
+}
+
+while getopts :c:f:hlnp:r:Rs:t:v opt; do
+  case "$opt" in
+    c) columns="$OPTARG" ;;
+    f) filters+=("$OPTARG") ;;
+    h) usage && exit ;;
+    l) list=1 ;;
+    n) dry_run=1 ;;
+    p) profiles+=("$OPTARG") ;;
+    r) regions+=("$OPTARG") ;;
+    R) all_regions=1 ;;
+    s) choose="$OPTARG" ;;
+    t) tags+=("$OPTARG") ;;
+    v) verbose=1 ;;
+    \?) usage_error "Invalid option -${OPTARG}" ;;
+    :) usage_error "Missing value for option -${OPTARG}" ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+if ! command -v aws >/dev/null; then
+  error 'The aws CLI is required'
+fi
+
+if ! command -v ec2-search >/dev/null; then
+  error 'The ec2-search is required'
+fi
+
+if ! command -v session-manager-plugin >/dev/null; then
+  error 'The AWS session-manager-plugin is required'
+  error 'https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html'
+fi
+
+[ -z "$columns" ] && columns=name
+search_cmd=(
+  ec2-search -a
+  -c "instance_id,profile,region,$columns"
+)
+for filter in "${filters[@]}"; do
+  search_cmd+=(-f "$filter")
+done
+for profile in "${profiles[@]}"; do
+  search_cmd+=(-p "$profile")
+done
+for region in "${regions[@]}"; do
+  search_cmd+=(-r "$region")
+done
+for tag in "${tags[@]}"; do
+  search_cmd+=(-t "$tag")
+done
+[ -n "$all_regions" ] && search_cmd+=(-R)
+[ -n "$verbose" ] && search_cmd+=(-v)
+search_cmd+=("$@")
+
+while read -r line; do
+  results+=("$line")
+done < <(print_run "${search_cmd[@]}")
+
+if [ "${#results[@]}" -eq 0 ]; then
+  error_exit "No instances found"
+elif [ "${#results[@]}" -eq 1 ] && [ -z "$list" ]; then
+  chosen="${results[0]}"
+else
+  if [ -z "$choose" ]; then
+    number=1
+    for result in "${results[@]}"; do
+      parts=()
+      while IFS='' read -r part; do
+        parts+=("$part");
+      done < <(echo "$result" | tr $'\t' $'\n')
+      echo "${number}) ${parts[*]:3}" >&2
+      number=$((number + 1))
+    done
+
+    echo -n '> ' >&2
+    read -r choose
+  fi
+
+  if [ -z "$choose" ]; then
+    exit
+  fi
+
+  if ! [[ "$choose" =~ ^[0-9]+$ ]]; then
+    error "Invalid choice ${choose}"
+  fi
+
+  if [ "$choose" -lt 1 ] || [ "$choose" -gt "${#results[@]}" ]; then
+    error "Choice ${choose} out of range"
+  fi
+
+  chosen="${results[(($choose - 1))]}"
+fi
+
+chosen_parts=()
+while IFS='' read -r part; do
+  chosen_parts+=("$part");
+done < <(echo "$chosen" | tr $'\t' $'\n')
+instance_id="${chosen_parts[0]}"
+profile="${chosen_parts[1]}"
+region="${chosen_parts[2]}"
+
+if [ -n "$dry_run" ]; then
+  echo "$instance_id"
+  exit
+fi
+
+session_cmd=(aws ssm start-session --target "$instance_id")
+[ -n "$profile" ] && session_cmd+=(--profile "$profile")
+[ -n "$region" ] && session_cmd+=(--region "$region")
+
+msg "Connecting to ${chosen_parts[*]:3}"
+verbose "${session_cmd[@]}"
+exec "${session_cmd[@]}"
