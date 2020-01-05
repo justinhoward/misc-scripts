@@ -1,0 +1,271 @@
+#!/usr/bin/env bash
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+verbose() {
+  [ -n "$verbose" ] && msg "$@"
+}
+
+error_exit() {
+  msg "$@"
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+print_run() {
+  verbose "$@"
+  "$@"
+}
+
+usage() {
+  cat >&2 <<EOF
+Usage: ec2-search [OPTIONS] [NAME...]
+
+Search for EC2 instances by name or tags
+
+NAME
+A word to search for in the EC2 instance Name tag. If multiple are given, they
+will be ANDed together. If given along with -t or -T, NAMEs will be ANDed with
+those tags as well. The NAME argument allows partial matches, but the -t and -T
+arguments require exact matches.
+
+OPTIONS
+-a            Active - Filter to running instances. Shorthand for
+                -f "Name=instance-state-name,Values=running"
+-c COLUMNS    Columns - A comma-separated list of columns to display.
+                ami: The AMI Id
+                instance_id: The EC2 instance ID
+                key_name: The name of the instance key pair
+                name: The value of the Name tag
+                launch_time: The timestamp of when the instance was launched
+                platform: "Windows" if a windows instance, otherwise blank
+                private_dns: The private DNS name
+                private_ip: The private IP address
+                profile: The AWS CLI profile used to find the instance
+                public_dns: The public DNS name
+                public_ip: The public IP address
+                region: The region of the instance
+                subnet_id: The subnet ID where the instance is running
+                state: The instance state name (running, stopped, etc)
+                tag:TAG: A tag value. For example, "-c tag:Owner"
+                vpc_id: The VPC Id the instance is running in
+              The default is "instance_id,name,state,private_ip".
+-f FILTERS    Filters - A filter for the native aws ec2 command.
+                The format is "Name=<filter>,Values=<value>,<value>"
+                Allows multiple instances of -f.
+                See "aws ec2 describe-instances help" for a full list.
+-h            Help - Show this help message
+-i            Instance ID Only - Lists instance IDs only. Shorthand for
+                -c "instance_id".
+-p PROFILE    Profile - An AWS CLI profile. Allows multiple.
+-r REGION     Region - An AWS region. Allows multiple.
+-R            All regions - Search all AWS regions
+-t TAG[=VAL]  Tag - Tag to search for. Multiples can be specified and will be
+                ANDed together. TAG without = specifies a tag key with any
+                value.  The form TAG=VAL specifies a specific tag value, or use
+                the form TAG= to specify an empty tag.
+-v            Verbose - Print verbose messaging
+
+EXAMPLES
+
+# Default behavior
+$ ec2-search
+i-123456abcdef web-production running 10.0.3.17
+i-987zyx       web-staging    stopped 10.1.4.203
+i-456862owierc worker-production running 10.0.3.203
+i-456862owierc marketing-production running 10.0.3.107
+
+# Specify a search term
+$ ec2-search web
+i-123456abcdef web-production running 10.0.3.17
+i-987zyx       web-staging    stopped 10.1.4.203
+
+# Multiple search terms
+$ ec2-search production web
+i-123456abcdef web-production running 10.0.3.17
+
+# Use the -c flag to specify columns to show
+$ ec2-search -c name,tag:Environment,launch_time web
+web-production production 2020-01-04T02:59:36.000Z
+web-staging    staging    2017-07-18T12:05:47.000Z
+
+# Use the -i flag to show only instance ID
+$ ec2-search -i web
+i-123456abcdef
+i-987zyx
+
+# Use a tag filter
+$ ec2-search -t CostOwner=marketing
+i-456862owierc marketing-production running 10.0.3.107
+
+# Use an aws cli filter
+$ ec2-search -f Name=vpc-id,Values=vpc-abcff2c2
+i-987zyx       web-staging    stopped 10.1.4.203
+EOF
+}
+
+while getopts :ac:f:hip:r:Rt:v opt; do
+  case "$opt" in
+    a) active=1 ;;
+    c) columns="$OPTARG" ;;
+    f) filters+=("$OPTARG") ;;
+    h) usage && exit ;;
+    i) columns=instance_id ;;
+    p) profiles+=("$OPTARG") ;;
+    r) regions+=("$OPTARG") ;;
+    R) all_regions=1 ;;
+    t) tags+=("$OPTARG") ;;
+    v) verbose=1 ;;
+    \?) usage_error "Invalid option -${OPTARG}" ;;
+    :) usage_error "Missing value for option -${OPTARG}" ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+declare -A column_map=(
+  [ami]="ImageId"
+  [instance_id]="InstanceId"
+  [key_name]="KeyName"
+  [launch_time]="LaunchTime"
+  [name]="Tags[?Key=='Name'] | [0].Value"
+  [platform]="Platform"
+  [private_dns]="PrivateDnsName"
+  [private_ip]="PrivateIpAddress"
+  [public_dns]="PublicDnsName"
+  [public_ip]="PublicIpAddress"
+  [subnet_id]="SubnetId"
+  [state]="State.Name"
+  [vpc_id]="VpcId"
+)
+
+set_all_regions() {
+  regions=()
+  region_cmd=(
+    aws ec2 describe-regions
+      --output text
+      --query 'Regions[*].[RegionName]'
+  )
+  [ "${#profiles[@]}" -gt 0 ] && region_cmd+=(--profile "${profiles[0]}")
+  [ "${#regions[@]}" -gt 0 ] && region_cmd+=(--region "${regions[0]}")
+  while read -r region; do
+    regions+=("$region")
+  done < <(print_run "${region_cmd[@]}")
+}
+
+get_region() {
+  [ -n "$region" ] && echo "$region" && return
+  [ -n "$AWS_DEFAULT_REGION" ] && echo "$AWS_DEFAULT_REGION" && return
+
+  config_cmd=(aws configure get region)
+  [ -n "$profile" ] && config_cmd+=(--profile "$profile")
+  config_region="$("${config_cmd[@]}")"
+  [ -n "$config_region" ] && echo "$config_region" && return
+
+  echo "$AWS_REGION"
+}
+
+set_query() {
+  IFS=',' read -ra split <<< "$columns"
+
+  query="Reservations[*].Instances[*].["
+  query+="${column_map[name]}"
+  for col in "${split[@]}"; do
+    if [[ "$col" == "tag:"* ]]; then
+      mapped="Tags[?Key=='${col#tag:}'] | [0].Value"
+    elif [ "$col" = profile ]; then
+      mapped="\`$profile\`"
+    elif [ "$col" = region ]; then
+      mapped="\`$(get_region)\`"
+    else
+      mapped="${column_map[$col]}"
+    fi
+    [ -z "$mapped" ] && usage_error "Invalid column $col"
+    query+=",$mapped"
+  done
+  query+="]"
+}
+
+set_all_filters() {
+  all_filters=("${filters[@]}")
+
+  if [ -n "$active" ]; then
+    all_filters+=("Name=instance-state-name,Values=running")
+  fi
+
+  for tag in "${tags[@]}"; do
+    IFS='=' read -ra parts <<< "$tag"
+    if [[ "$tag" == *=* ]]; then
+      all_filters+=("Name=tag:${parts[0]},Values=${parts[1]}")
+    else
+      all_filters+=("Name=tag-key,Values=${parts[0]}")
+    fi
+  done
+}
+
+set_aws_args() {
+  profile="$1"
+  region="$2"
+  aws_args=()
+  [ -n "$profile" ] && aws_args+=(--profile "$profile")
+  [ -n "$region" ] && aws_args+=(--region "$region")
+}
+
+search() {
+  while read -r line; do
+    skip=
+    # Need to preserve empty array elements so read -ra doesn't work here
+    parts=()
+    while IFS='' read -r part; do
+      parts+=("$part");
+    done < <(echo "$line" | tr $'\t' $'\n')
+
+    name="${parts[0]}"
+    for search in "$@"; do
+      if [[ "$name" != *"$search"* ]]; then
+        skip=1
+        break
+      fi
+    done
+
+    [ -n "$skip" ] && continue
+
+    started=
+    for part in "${parts[@]:1}"; do
+      [ -n "$started" ] && printf '\t'
+      printf '%s' "$part"
+      started=1
+    done
+    echo
+  done < <(
+    print_run aws ec2 describe-instances \
+      "${aws_args[@]}" \
+      --filter "${all_filters[@]}" \
+      --output text \
+      --query "$query"
+  )
+}
+
+if ! command -v aws >/dev/null; then
+  error 'The aws CLI is required'
+fi
+
+[ -z "$columns" ] && columns='instance_id,name,state,private_ip'
+[ "${#profiles[@]}" = 0 ] && profiles=('')
+[ "${#regions[@]}" = 0 ] && regions=('')
+[ -n "$all_regions" ] && set_all_regions
+
+set_all_filters
+for profile in "${profiles[@]}"; do
+  for region in "${regions[@]}"; do
+    set_query
+    set_aws_args "$profile" "$region"
+    search "$@"
+  done
+done
