@@ -41,26 +41,26 @@ OPTIONS
                 -f "instance-state-name=running"
 -c COLUMNS    Columns - A comma-separated list of columns to display.
                 ami: The AMI Id
-                instance_id: The EC2 instance ID
-                key_name: The name of the instance key pair
+                instance-id: The EC2 instance ID
+                key-name: The name of the instance key pair
                 name: The value of the Name tag
-                launch_time: The timestamp of when the instance was launched
+                launch-time: The timestamp of when the instance was launched
                 platform: "windows" if a windows instance, otherwise blank
-                private_dns: The private DNS name
-                private_ip: The private IP address
+                private-dns: The private DNS name
+                private-ip: The private IP address
                 profile: The AWS CLI profile used to find the instance
-                public_dns: The public DNS name
-                public_ip: The public IP address
+                public-dns: The public DNS name
+                public-ip: The public IP address
                 query:QUERY: A JMESPath expression to query the Instances
                   projection given by "Reservations[*].Instances[*]". For
                   example, -f "query:BlockDeviceMappings[0].DeviceName" gets
                   the device name for the first block device. The expression
                   should return a single value.
                 region: The region of the instance
-                subnet_id: The subnet ID where the instance is running
+                subnet-id: The subnet ID where the instance is running
                 state: The instance state name (running, stopped, etc)
                 tag:TAG: A tag value. For example, "-c tag:Owner"
-                vpc_id: The VPC Id the instance is running in
+                vpc-id: The VPC Id the instance is running in
               The default is "instance_id,name,state,private_ip".
 -f FILTERS    Filters - A filter for the native aws ec2 command.
                 The format is "FILTER=[VALUE][,VALUE...]"
@@ -137,18 +137,18 @@ shift $((OPTIND - 1))
 
 declare -A column_map=(
   [ami]="ImageId"
-  [instance_id]="InstanceId"
-  [key_name]="KeyName"
-  [launch_time]="LaunchTime"
+  [instance-id]="InstanceId"
+  [key-name]="KeyName"
+  [launch-time]="LaunchTime"
   [name]="Tags[?Key=='Name'] | [0].Value"
   [platform]="Platform || \`\`"
-  [private_dns]="PrivateDnsName"
-  [private_ip]="PrivateIpAddress"
-  [public_dns]="PublicDnsName"
-  [public_ip]="PublicIpAddress"
-  [subnet_id]="SubnetId"
+  [private-dns]="PrivateDnsName"
+  [private-ip]="PrivateIpAddress"
+  [public-dns]="PublicDnsName"
+  [public-ip]="PublicIpAddress"
+  [subnet-id]="SubnetId"
   [state]="State.Name"
-  [vpc_id]="VpcId"
+  [vpc-id]="VpcId"
 )
 
 set_all_regions() {
