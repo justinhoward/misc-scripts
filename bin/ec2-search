@@ -143,21 +143,19 @@ while getopts :ac:f:hio:p:r:Rt:v opt; do
 done
 shift $((OPTIND - 1))
 
-declare -A column_map=(
-  [ami]="ImageId"
-  [instance-id]="InstanceId"
-  [key-name]="KeyName"
-  [launch-time]="LaunchTime"
-  [name]="Tags[?Key=='Name'] | [0].Value"
-  [platform]="Platform || \`\`"
-  [private-dns]="PrivateDnsName"
-  [private-ip]="PrivateIpAddress"
-  [public-dns]="PublicDnsName"
-  [public-ip]="PublicIpAddress"
-  [subnet-id]="SubnetId"
-  [state]="State.Name"
-  [vpc-id]="VpcId"
-)
+column_map_ami="ImageId"
+column_map_instance_id="InstanceId"
+column_map_key_name="KeyName"
+column_map_launch_time="LaunchTime"
+column_map_name="Tags[?Key=='Name'] | [0].Value"
+column_map_platform="Platform"
+column_map_private_dns="PrivateDnsName"
+column_map_private_ip="PrivateIpAddress"
+column_map_public_dns="PublicDnsName"
+column_map_public_ip="PublicIpAddress"
+column_map_subnet_id="SubnetId"
+column_map_state="State.Name"
+column_map_vpc_id="VpcId"
 
 set_all_regions() {
   regions=()
@@ -189,7 +187,7 @@ set_query() {
   IFS=',' read -ra split <<< "$columns"
 
   query="Reservations[*].Instances[*].["
-  query+="${column_map[name]}"
+  query+="$column_map_name"
   for col in "${split[@]}"; do
     if [[ "$col" == "tag:"* ]]; then
       mapped="Tags[?Key=='${col#tag:}'] | [0].Value || \`\`"
@@ -200,7 +198,8 @@ set_query() {
     elif [[ "$col" == "query:"* ]]; then
       mapped="${col#query:} || \`\`"
     else
-      mapped="${column_map[$col]}"
+      col_map_var="column_map_${col//-/_}"
+      mapped="${!col_map_var}"
       [ -z "$mapped" ] && usage_error "Invalid column $col"
       mapped="$mapped || \`\`"
     fi
