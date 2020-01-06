@@ -103,8 +103,8 @@ fi
 
 [ -z "$columns" ] && columns=name
 search_cmd=(
-  ec2-search -a
-  -c "instance_id,profile,region,$columns"
+  ec2-search -ao tsv
+  -c "instance-id,profile,region,$columns"
 )
 for filter in "${filters[@]}"; do
   search_cmd+=(-f "$filter")

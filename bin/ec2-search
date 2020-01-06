@@ -61,7 +61,7 @@ OPTIONS
                 state: The instance state name (running, stopped, etc)
                 tag:TAG: A tag value. For example, "-c tag:Owner"
                 vpc-id: The VPC Id the instance is running in
-              The default is "instance_id,name,state,private_ip".
+              The default is "instance-id,name,state,private-ip".
 -f FILTERS    Filters - A filter for the native aws ec2 command.
                 The format is "FILTER=[VALUE][,VALUE...]"
                 Allows multiple instances of -f.
@@ -69,7 +69,14 @@ OPTIONS
                 filters.
 -h            Help - Show this help message
 -i            Instance ID Only - Lists instance IDs only. Shorthand for
-                -c "instance_id".
+                -c "instance-id".
+-o FORMAT     Output Format - The format to output results.
+                - csv: CSV formatted rows. Quoted when necessary.
+                - json: A JSON object of results
+                - tsv: Separates each column by a tab character. Useful for
+                  input to other programs. Tabs are not escaped.
+                - table: A human-readable table
+                The default is table
 -p PROFILE    Profile - An AWS CLI profile. Allows multiple.
 -r REGION     Region - An AWS region. Allows multiple.
 -R            All regions - Search all AWS regions
@@ -117,13 +124,14 @@ i-987zyx       web-staging    stopped 10.1.4.203
 EOF
 }
 
-while getopts :ac:f:hip:r:Rt:v opt; do
+while getopts :ac:f:hio:p:r:Rt:v opt; do
   case "$opt" in
     a) active=1 ;;
     c) columns="$OPTARG" ;;
     f) filters+=("$OPTARG") ;;
     h) usage && exit ;;
-    i) columns=instance_id ;;
+    i) columns=instance-id ;;
+    o) format="$OPTARG" ;;
     p) profiles+=("$OPTARG") ;;
     r) regions+=("$OPTARG") ;;
     R) all_regions=1 ;;
@@ -192,9 +200,10 @@ set_query() {
     elif [[ "$col" == "query:"* ]]; then
       mapped="${col#query:} || \`\`"
     else
-      mapped="${column_map[$col]} || \`\`"
+      mapped="${column_map[$col]}"
+      [ -z "$mapped" ] && usage_error "Invalid column $col"
+      mapped="$mapped || \`\`"
     fi
-    [ -z "$mapped" ] && usage_error "Invalid column $col"
     query+=",$mapped"
   done
   query+="]"
@@ -204,7 +213,7 @@ set_all_filters() {
   all_filters=()
   for filter in "${filters[@]}"; do
     IFS='=' read -ra filter_parts <<< "$filter"
-    all_filters+=("Name=${filter_parts[0]},Values=${filter_parts[@]:1}")
+    all_filters+=("Name=${filter_parts[0]},Values=${filter_parts[*]:1}")
   done
 
   if [ -n "$active" ]; then
@@ -229,6 +238,53 @@ set_aws_args() {
   [ -n "$region" ] && aws_args+=(--region "$region")
 }
 
+format() {
+  case "$format" in
+    tsv|table) format_tsv "$@" ;;
+    csv) format_csv "$@" ;;
+    json) format_json "$@" ;;
+    *) usage_error "Invalid format $format" ;;
+  esac
+}
+
+format_csv() {
+  started=
+  for part in "${parts[@]:1}"; do
+    part="${part//\"/\"\"}"
+    [[ "$part" =~ [\",] ]] && part="\"$part\""
+    [ -n "$started" ] && printf ','
+    printf '%s' "$part"
+    started=1
+  done
+  echo
+}
+
+format_json() {
+  if ! column -V 1>/dev/null 2>&1; then
+    error_exit 'The installed version of "column" does not support JSON'
+  fi
+
+  format_tsv "$@"
+}
+
+format_tsv() {
+  started=
+  for part in "${parts[@]:1}"; do
+    [ -n "$started" ] && printf '\t'
+    printf '%s' "$part"
+    started=1
+  done
+  echo
+}
+
+post_format() {
+  case "$format" in
+    table) column -ts$'\t';;
+    json) column -Js$'\t' -N "$columns" -n instances;;
+    *) cat ;;
+  esac
+}
+
 search() {
   while read -r line; do
     skip=
@@ -248,13 +304,7 @@ search() {
 
     [ -n "$skip" ] && continue
 
-    started=
-    for part in "${parts[@]:1}"; do
-      [ -n "$started" ] && printf '\t'
-      printf '%s' "$part"
-      started=1
-    done
-    echo
+    format "${parts[@]:1}"
   done < <(
     print_run aws ec2 describe-instances \
       "${aws_args[@]}" \
@@ -268,16 +318,21 @@ if ! command -v aws >/dev/null; then
   error 'The aws CLI is required'
 fi
 
-[ -z "$columns" ] && columns='instance_id,name,state,private_ip'
+[ -z "$columns" ] && columns='instance-id,name,state,private-ip'
+[ -z "$format" ] && format=table
 [ "${#profiles[@]}" = 0 ] && profiles=('')
 [ "${#regions[@]}" = 0 ] && regions=('')
 [ -n "$all_regions" ] && set_all_regions
 
-set_all_filters
-for profile in "${profiles[@]}"; do
-  for region in "${regions[@]}"; do
-    set_query
-    set_aws_args "$profile" "$region"
-    search "$@"
+run() {
+  set_all_filters
+  for profile in "${profiles[@]}"; do
+    for region in "${regions[@]}"; do
+      set_query
+      set_aws_args "$profile" "$region"
+      search "$@"
+    done
   done
-done
+}
+
+run "$@" | post_format
