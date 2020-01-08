@@ -26,22 +26,23 @@ A word to search for in the EC2 instance Name tag. If multiple are given, they
 will be ANDed together.
 
 OPTIONS
--c COLUMNS   Columns - A comma-separated list of columns to display.
-               Defaults to "name". See "ec2-search -h" for more info.
--f FILTERS    Filters - A filter for the native aws ec2 command.
-                The format is "Name=<filter>,Values=<value>,<value>"
-                Allows multiple instances of -f.
-                See "aws ec2 describe-instances help" for a full list.
--h           Help - Show this help message
--l           Show List - Force printing the list even for only 1 option
--n           Dry run - Print the matching instance ID instead of connecting
--p PROFILE   Profile - An AWS CLI profile. Allows multiple.
--r REGION    Region - An AWS region. Allows multiple.
--R           All regions - Search all AWS regions
--s           Select - Select a number without showing the list
--t NAME=VAL  Tag - Tag to search for. Multiples can be specified and will be
-               ANDed together.
--v           Verbose - Print verbose messaging
+-c COLUMNS      Columns - A comma-separated list of columns to display.
+                  Defaults to "name". See "ec2-search -h" for more info.
+-f FILTERS       Filters - A filter for the native aws ec2 command.
+                   The format is "Name=<filter>,Values=<value>,<value>"
+                   Allows multiple instances of -f.
+                   See "aws ec2 describe-instances help" for a full list.
+-h              Help - Show this help message
+-i INSTANCE_ID  Instance ID - Connect to INSTANCE_ID directly
+-l              Show List - Force printing the list even for only 1 option
+-n              Dry run - Print the matching instance ID instead of connecting
+-p PROFILE      Profile - An AWS CLI profile. Allows multiple.
+-r REGION       Region - An AWS region. Allows multiple.
+-R              All regions - Search all AWS regions
+-s              Select - Select a number without showing the list
+-t NAME=VAL     Tag - Tag to search for. Multiples can be specified and will be
+                  ANDed together.
+-v              Verbose - Print verbose messaging
 EOF
 }
 
@@ -69,11 +70,12 @@ print_run() {
   "$@"
 }
 
-while getopts :c:f:hlnp:r:Rs:t:v opt; do
+while getopts :c:f:hi:lnp:r:Rs:t:v opt; do
   case "$opt" in
     c) columns="$OPTARG" ;;
     f) filters+=("$OPTARG") ;;
     h) usage && exit ;;
+    i) provided_instance_id="$OPTARG" ;;
     l) list=1 ;;
     n) dry_run=1 ;;
     p) profiles+=("$OPTARG") ;;
@@ -118,6 +120,7 @@ done
 for tag in "${tags[@]}"; do
   search_cmd+=(-t "$tag")
 done
+[ -n "$provided_instance_id" ] && search_cmd+=(-f "instance-id=$provided_instance_id")
 [ -n "$all_regions" ] && search_cmd+=(-R)
 [ -n "$verbose" ] && search_cmd+=(-v)
 search_cmd+=("$@")
