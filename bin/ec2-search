@@ -32,9 +32,9 @@ Search for EC2 instances by name or tags
 
 NAME
 A word to search for in the EC2 instance Name tag. If multiple are given, they
-will be ANDed together. If given along with -t or -T, NAMEs will be ANDed with
-those tags as well. The NAME argument allows partial matches, but the -t and -T
-arguments require exact matches.
+will be ANDed together. If given along with -t, NAMEs will be ANDed with
+those tags as well. The NAME argument allows partial matches, but the -t
+argument requires exact matches.
 
 OPTIONS
 -a            Active - Filter to running instances. Shorthand for
@@ -145,6 +145,7 @@ shift $((OPTIND - 1))
 
 column_map_ami="ImageId"
 column_map_instance_id="InstanceId"
+column_map_instance_type="InstanceType"
 column_map_key_name="KeyName"
 column_map_launch_time="LaunchTime"
 column_map_name="Tags[?Key=='Name'] | [0].Value"
