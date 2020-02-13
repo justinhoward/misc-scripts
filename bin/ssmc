@@ -154,11 +154,11 @@ else
   fi
 
   if ! [[ "$choose" =~ ^[0-9]+$ ]]; then
-    error "Invalid choice ${choose}"
+    error_exit "Invalid choice ${choose}"
   fi
 
   if [ "$choose" -lt 1 ] || [ "$choose" -gt "${#results[@]}" ]; then
-    error "Choice ${choose} out of range"
+    error_exit "Choice ${choose} out of range"
   fi
 
   chosen="${results[(($choose - 1))]}"
