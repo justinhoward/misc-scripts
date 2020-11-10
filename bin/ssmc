@@ -181,6 +181,6 @@ session_cmd=(aws ssm start-session --target "$instance_id")
 [ -n "$profile" ] && session_cmd+=(--profile "$profile")
 [ -n "$region" ] && session_cmd+=(--region "$region")
 
-msg "Connecting to ${chosen_parts[*]:3}"
+msg "Connecting to ${chosen_parts[*]:3} (${instance_id} in ${region})"
 verbose "${session_cmd[@]}"
 exec "${session_cmd[@]}"
