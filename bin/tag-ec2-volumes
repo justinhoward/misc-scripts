@@ -38,14 +38,18 @@ shift $((OPTIND - 1))
 [ -n "$region" ] && aws_args+=( --region "$region" )
 
 if [ -n "$all" ]; then
-  while read -ra instance_id; do
-    instance_ids+=( "$instance_id" )
+  while read -r instance_id; do
+    instance_ids+="$instance_id"
   done < <(
     aws ec2 describe-instances \
-      --query 'Reservations[*].Instances[*].InstanceId' \
+      --query 'Reservations[*].Instances[*].[InstanceId]' \
       --output text \
     "${aws_args[@]}"
   )
+elif [ "$#" = 0 ]; then
+  while read -r instance_id; do
+    instance_ids+="$instance_id"
+  done
 else
   instance_ids=("$@")
 fi
