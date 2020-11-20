@@ -1,14 +1,18 @@
-INSTALL_DIR?=$(HOME)
-INSTALL_BIN_DIR?=$(INSTALL_DIR)/bin
+PREFIX?=$(HOME)
+BINDIR?=$(PREFIX)/bin
 INSTALL_LINK?=0
 
 SRC_BIN_DIR=bin
-SRC_BINS=$(wildcard $(SRC_BIN_DIR)/*)
-INSTALLED_BINS=$(patsubst $(SRC_BIN_DIR)/%,$(INSTALL_BIN_DIR)/%,$(SRC_BINS))
+ifdef BINS
+	SRC_BINS=$(addprefix $(SRC_BIN_DIR)/,$(BINS))
+else
+	SRC_BINS=$(wildcard $(SRC_BIN_DIR)/*)
+endif
+INSTALLED_BINS=$(patsubst $(SRC_BIN_DIR)/%,$(BINDIR)/%,$(SRC_BINS))
 
 .PHONY: install
 install: $(INSTALLED_BINS)
-$(INSTALL_BIN_DIR)/%: $(SRC_BIN_DIR)/%
+$(BINDIR)/%: $(SRC_BIN_DIR)/%
 ifeq ($(INSTALL_LINK),1)
 	ln -sf $(realpath $<) $@
 else
@@ -25,8 +29,8 @@ uninstall:
 
 .PHONY: info
 info:
-	$(info INSTALL_DIR: $(INSTALL_DIR))
-	$(info INSTALL_BIN_DIR: $(INSTALL_BIN_DIR))
+	$(info PREFIX: $(PREFIX))
+	$(info BINDIR: $(BINDIR))
 	$(info SRC_BIN_DIR: $(SRC_BIN_DIR))
 	$(info SRC_BINS: $(SRC_BINS))
 	$(info INSTALLED_BINS: $(INSTALLED_BINS))

@@ -11,9 +11,20 @@ have that in your path.
 Alternatively, run `make link` to create symbolic links to this repository
 instead of copying files.
 
-To install or link to a different directory, set `INSTALL_DIR`.
+### Custom install directory
+
+To install or link to a different directory, set `PREFIX`.
 
 ```sh
 # Installs scripts to /usr/local/bin
-make install INSTALL_DIR=/usr/local
+make install PREFIX=/usr/local
+```
+
+### Install only some scripts
+
+To install only some scripts, specify `BINS`
+
+```sh
+# Installs only ssmc and ec2-search
+make install BINS='ssmc ec2-search'
 ```
