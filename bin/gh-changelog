@@ -6,9 +6,10 @@ Usage: gh-changelog [OPTIONS] [...REVSPEC]
 Generate a changelog based on merged PRs from GitHub
 
 OPTIONS
+-b       Branch - The git branch to operate on (default HEAD)
 -h       Help - Show this help message
--m VAL   My flag - Do something fun!
--n       Dry run - Print debug messaging instead of performing the function
+-o       Owner - The GitHub repository owner (defaults to the current repo owner)
+-o       Repo - The GitHub repository (defaults to the current repo)
 -v       Verbose - Print verbose messaging
 EOF
 }
@@ -34,6 +35,18 @@ usage_error() {
   exit 1
 }
 
+if ! command -v git > /dev/null; then
+  error_exit 'git is required'
+fi
+
+if ! command -v gh > /dev/null; then
+  error_exit 'The GitHub CLI (gh) is required https://cli.github.com/'
+fi
+
+if ! command -v jq > /dev/null; then
+  error_exit 'The jq JSON parser is required https://stedolan.github.io/jq/'
+fi
+
 while getopts :b:ho:r:v opt; do
   case "$opt" in
     b) branch="$OPTARG" ;;
@@ -49,24 +62,32 @@ shift $((OPTIND - 1))
 
 # [ "$#" -ge 2 ] || usage_error 'At least 2 arguments are required'
 
-url="$(git remote get-url origin)"
+if [ -z "$owner" ] || [ -z "$repo" ]; then
+  url="$(git remote get-url origin)"
+  [ "$?" -ne 0 ] && error_exit 'Could not get git branch'
 
-if [ -z "$owner" ]; then
-  owner="${url%%/*}"
-  owner="${owner##*[:/]}"
+  if [ -z "$owner" ]; then
+    owner="${url%%/*}"
+    owner="${owner##*[:/]}"
+  fi
+
+  if [ -z "$repo" ]; then
+    repo=${url##*/}
+    repo="${repo%%.*}"
+  fi
 fi
 
-if [ -z "$repo" ]; then
-  repo=${url##*/}
-  repo="${repo%%.*}"
+if [ -z "$branch" ]; then
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  [ "$?" -ne 0 ] && error_exit 'Could not get git head branch name'
 fi
-
-[ -z "$branch" ] && branch="$(git rev-parse --abbrev-ref HEAD)"
 
 if [ "$#" -gt 0 ]; then
   revspec=("$@")
 else
   start="$(git describe --tags --abbrev=0 "$branch")"
+  [ "$?" -ne 0 ] && error_exit 'Could not get git latest tag'
+
   end="HEAD"
   revspec=("$start..$end")
 fi
