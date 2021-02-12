@@ -123,7 +123,7 @@ while true; do
     if [[ " ${refs[@]} " =~ " ${merge_commit_sha} " ]]; then
       [ -z "$started" ] && verbose "${merge_commit_sha} found. Starting."
       started=1
-      msg "- ${title} #${number} ${user}"
+      echo "- ${title} #${number} ${user}"
     elif [ -n "$started" ]; then
       verbose "${merge_commit_sha} not found"
       not_found=$((not_found + 1))
