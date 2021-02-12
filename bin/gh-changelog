@@ -5,13 +5,16 @@ usage() {
 Usage: gh-changelog [OPTIONS] [...REVSPEC]
 Generate a changelog based on merged PRs from GitHub
 
+REVSPEC: A commit range string for "git rev-parse". By default, this is the
+  latest tag to the current HEAD.
+
 OPTIONS
 -b       Branch - The git branch to operate on (default HEAD)
 -h       Help - Show this help message
 -o       Owner - The GitHub repository owner (defaults to the current repo owner)
 -r       Repo - The GitHub repository (defaults to the current repo)
 -s       Max Skips - The maximum number of PRs that will be skipped before
-           deciding that we're done (default 10).
+           deciding that we're done (default 25).
 -v       Verbose - Print verbose messaging
 EOF
 }
@@ -62,8 +65,6 @@ while getopts :b:ho:r:s:v opt; do
   esac
 done
 shift $((OPTIND - 1))
-
-# [ "$#" -ge 2 ] || usage_error 'At least 2 arguments are required'
 
 if [ -z "$owner" ] || [ -z "$repo" ]; then
   url="$(git remote get-url origin)"
