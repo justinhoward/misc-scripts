@@ -9,7 +9,9 @@ OPTIONS
 -b       Branch - The git branch to operate on (default HEAD)
 -h       Help - Show this help message
 -o       Owner - The GitHub repository owner (defaults to the current repo owner)
--o       Repo - The GitHub repository (defaults to the current repo)
+-r       Repo - The GitHub repository (defaults to the current repo)
+-s       Max Skips - The maximum number of PRs that will be skipped before
+           deciding that we're done (default 10).
 -v       Verbose - Print verbose messaging
 EOF
 }
@@ -47,12 +49,13 @@ if ! command -v jq > /dev/null; then
   error_exit 'The jq JSON parser is required https://stedolan.github.io/jq/'
 fi
 
-while getopts :b:ho:r:v opt; do
+while getopts :b:ho:r:s:v opt; do
   case "$opt" in
     b) branch="$OPTARG" ;;
     h) usage && exit ;;
     o) owner="$OPTARG" ;;
     r) repo="$OPTARG" ;;
+    s) max_skips="$OPTARG" ;;
     v) verbose=1 ;;
     \?) usage_error "Invalid option -${OPTARG}" ;;
     :) usage_error "Missing value for option -${OPTARG}" ;;
@@ -92,6 +95,8 @@ else
   revspec=("$start..$end")
 fi
 
+[ -z "$max_skips" ] && max_skips=25
+
 verbose "Owner: $owner"
 verbose "Repo: $repo"
 verbose "Branch: $branch"
@@ -102,6 +107,7 @@ while read -r line; do
 done < <(git rev-list "${revspec[*]}")
 
 page=1
+not_found=0
 while true; do
   while read -r line; do
     number="$(echo "$line" | cut -f1)"
@@ -109,11 +115,18 @@ while true; do
     title="$(echo "$line" | cut -f3)"
     user="$(echo "$line" | cut -f4)"
 
+    if [ -z "$merge_commit_sha" ]; then
+      verbose "No merge commit for ${number}. Skipping"
+      continue
+    fi
+
     if [[ " ${refs[@]} " =~ " ${merge_commit_sha} " ]]; then
+      [ -z "$started" ] && verbose "${merge_commit_sha} found. Starting."
       started=1
       msg "- ${title} #${number} ${user}"
     elif [ -n "$started" ]; then
-      break 2
+      verbose "${merge_commit_sha} not found"
+      not_found=$((not_found + 1))
     fi
 
   done < <(
@@ -121,5 +134,9 @@ while true; do
       | jq -r 'map([.number,.merge_commit_sha,.title,.user.login]) | .[] | @tsv'
   )
 
+  if [ "$not_found" -ge "$max_skips" ]; then
+    verbose "${not_found} PRs not found in revspec (> ${max_skips}). Stopping"
+    break
+  fi
   page=$(( page + 1 ))
 done
