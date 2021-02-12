@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+usage() {
+  cat >&2 <<EOF
+Usage: gh-changelog [OPTIONS] [...REVSPEC]
+Generate a changelog based on merged PRs from GitHub
+
+OPTIONS
+-h       Help - Show this help message
+-m VAL   My flag - Do something fun!
+-n       Dry run - Print debug messaging instead of performing the function
+-v       Verbose - Print verbose messaging
+EOF
+}
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+verbose() {
+  [ -n "$verbose" ] && msg "$@"
+}
+
+error_exit() {
+  msg "$@"
+  exit 1
+}
+
+# usage_error(message...)
+# Print an error and usage information, then exit
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+while getopts :b:ho:r:v opt; do
+  case "$opt" in
+    b) branch="$OPTARG" ;;
+    h) usage && exit ;;
+    o) owner="$OPTARG" ;;
+    r) repo="$OPTARG" ;;
+    v) verbose=1 ;;
+    \?) usage_error "Invalid option -${OPTARG}" ;;
+    :) usage_error "Missing value for option -${OPTARG}" ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+# [ "$#" -ge 2 ] || usage_error 'At least 2 arguments are required'
+
+url="$(git remote get-url origin)"
+
+if [ -z "$owner" ]; then
+  owner="${url%%/*}"
+  owner="${owner##*[:/]}"
+fi
+
+if [ -z "$repo" ]; then
+  repo=${url##*/}
+  repo="${repo%%.*}"
+fi
+
+[ -z "$branch" ] && branch="$(git rev-parse --abbrev-ref HEAD)"
+
+if [ "$#" -gt 0 ]; then
+  revspec=("$@")
+else
+  start="$(git describe --tags --abbrev=0 "$branch")"
+  end="HEAD"
+  revspec=("$start..$end")
+fi
+
+verbose "Owner: $owner"
+verbose "Repo: $repo"
+verbose "Branch: $branch"
+verbose "Revspec: ${revspec[*]}"
+
+while read -r line; do
+  refs+=("$line")
+done < <(git rev-list "${revspec[*]}")
+
+page=1
+while true; do
+  while read -r line; do
+    number="$(echo "$line" | cut -f1)"
+    merge_commit_sha="$(echo "$line" | cut -f2)"
+    title="$(echo "$line" | cut -f3)"
+    user="$(echo "$line" | cut -f4)"
+
+    if [[ " ${refs[@]} " =~ " ${merge_commit_sha} " ]]; then
+      started=1
+      msg "- ${title} #${number} ${user}"
+    elif [ -n "$started" ]; then
+      break 2
+    fi
+
+  done < <(
+    gh api "repos/${owner}/${repo}/pulls?base=${branch}&page=${page}&state=closed" \
+      | jq -r 'map([.number,.merge_commit_sha,.title,.user.login]) | .[] | @tsv'
+  )
+
+  page=$(( page + 1 ))
+done
