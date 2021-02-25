@@ -14,7 +14,7 @@ OPTIONS
 -o       Owner - The GitHub repository owner (defaults to the current repo owner)
 -r       Repo - The GitHub repository (defaults to the current repo)
 -s       Max Skips - The maximum number of PRs that will be skipped before
-           deciding that we're done (default 25).
+           deciding that we're done (default 50).
 -v       Verbose - Print verbose messaging
 EOF
 }
@@ -96,7 +96,7 @@ else
   range=("$start..$end")
 fi
 
-[ -z "$max_skips" ] && max_skips=25
+[ -z "$max_skips" ] && max_skips=50
 
 verbose "Owner: $owner"
 verbose "Repo: $repo"
@@ -110,10 +110,11 @@ done < <(git rev-list "${range[@]}")
 
 page=1
 not_found=0
+page_size=100
 declare -A found_refs
 while true; do
   prs=$(
-    gh api "repos/${owner}/${repo}/pulls?base=${branch}&page=${page}&state=closed" \
+    gh api "repos/${owner}/${repo}/pulls?base=${branch}&page=${page}&state=closed&sort=updated&direction=desc&per_page=${page_size}" \
       | jq -r 'map([.number,.merge_commit_sha,.title,.user.login]) | .[] | @tsv'
   )
   [ "$?" -ne 0 ] && error_exit 'Error fetching PRs from GitHub'
