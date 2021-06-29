@@ -120,10 +120,10 @@ for line in "${changelog_json[@]}"; do
       fi
       msg "Description: $description"
 
-      read -r -p '[(n)ext,(m)ore,(e)dit,(s)kip,(j)ira,(g)ithub]: ' answer
+      read -r -p '[(d)one,(m)ore,(e)dit,(s)kip,(j)ira,(g)ithub]: ' answer
       msg
       case "$answer" in
-        n|next)
+        d|done)
           break
           ;;
         m|more)
