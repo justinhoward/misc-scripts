@@ -88,12 +88,14 @@ shift $((OPTIND - 1))
 
 range=("$@")
 changelog_cmd=(gh-changelog "${range[@]}" -f json)
-changelog="$("${changelog_cmd[@]}")"
+while read -r line; do
+  changelog_json+=("$line")
+done < <("${changelog_cmd[@]}")
 jira_namespace="$(jq -r .namespace < ~/.jira_terminal_configuration.json)"
 
 changelog_list=()
 detail_list=()
-while read -r line; do
+for line in "${changelog_json[@]}"; do
   title="$(echo "$line" | jq -r .title)"
   number="$(echo "$line" | jq -r .number)"
   user="$(echo "$line" | jq -r .user.login)"
@@ -123,13 +125,13 @@ while read -r line; do
         msg "$(echo "$jira_detail" | head -5)"
       fi
 
-      read -r -u 1 -p $'\n[(n)ext,(e)dit,(s)kip,(j)ira,(g)ithub]: ' answer
+      read -r -p $'\n[(n)ext,(e)dit,(s)kip,(j)ira,(g)ithub]: ' answer
       case "$answer" in
         n|next)
           break
           ;;
         e|edit)
-          read -r -u 1 -p "Description: " new_description
+          read -r -p "Description: " new_description
           [ -n "$new_description" ] && description="$new_description"
           ;;
         s|skip)
@@ -163,10 +165,10 @@ while read -r line; do
     detail_list+=("$detail_line")
     changelog_list+=("- ${title} #${number} ${user}")
   fi
-done < <(echo "$changelog")
+done
 
 if [ "${#changelog_list[@]}" -gt 0 ]; then
-  msg
+  [ -n "$interactive" ] && msg
 
   for item in "${detail_list[@]}"; do
     echo "$item"
