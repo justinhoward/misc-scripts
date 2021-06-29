@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+
+usage() {
+  cat >&2 <<EOF
+Usage: rngen [OPTIONS] [...RANGE]
+Interactively generate release notes
+
+RANGE: A commit range string for "git rev-list". By default, this is the
+  latest tag to the current HEAD.
+
+OPTIONS
+-b       Branch - The git branch to operate on (default HEAD)
+-h       Help - Show this help message
+-i       Interactive - Generate release notes interactively
+-o       Owner - The GitHub repository owner (defaults to the current repo owner)
+-r       Repo - The GitHub repository (defaults to the current repo)
+-s       Max Skips - The maximum number of PRs that will be skipped before
+           deciding that we're done (default 50).
+-v       Verbose - Print verbose messaging
+EOF
+}
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+verbose() {
+  [ -n "$verbose" ] && msg "$@"
+}
+
+error_exit() {
+  msg "$@"
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+open_url() {
+  if command -v xdg-open 2>/dev/null; then
+    xdg-open "$1"
+  elif command -v open 2>/dev/null; then
+    open "$1"
+  else
+    echo "$1"
+  fi
+}
+
+jira_url() {
+  if [ -n "$jira_namespace" ]; then
+    echo "https://$jira_namespace/browse/$1"
+  fi
+}
+
+if ! command -v gh-changelog > /dev/null; then
+  error_exit 'gh-changelog is required'
+fi
+
+if ! command -v jira-terminal > /dev/null; then
+  error_exit 'jira-terminal is required'
+fi
+
+if ! command -v gh > /dev/null; then
+  error_exit 'The GitHub CLI (gh) is required https://cli.github.com/'
+fi
+
+if ! command -v jq > /dev/null; then
+  error_exit 'The jq JSON parser is required https://stedolan.github.io/jq/'
+fi
+
+while getopts :b:hio:r:s:v opt; do
+  case "$opt" in
+    b) changelog_opts+=(-b "$OPTARG") ;;
+    h) usage && exit ;;
+    i) interactive=1 ;;
+    o) changelog_opts+=(-o "$OPTARG") ;;
+    r) changelog_opts+=(-r "$OPTARG") ;;
+    s) changelog_opts+=(-s "$OPTARG") ;;
+    v) verbose=1 ;;
+    \?) usage_error "Invalid option -${OPTARG}" ;;
+    :) usage_error "Missing value for option -${OPTARG}" ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+range=("$@")
+changelog_cmd=(gh-changelog "${range[@]}" -f json)
+changelog="$("${changelog_cmd[@]}")"
+jira_namespace="$(jq -r .namespace < ~/.jira_terminal_configuration.json)"
+
+changelog_list=()
+detail_list=()
+while read -r line; do
+  title="$(echo "$line" | jq -r .title)"
+  number="$(echo "$line" | jq -r .number)"
+  user="$(echo "$line" | jq -r .user.login)"
+  body="$(echo "$line" | jq -r .body)"
+  gh_url="$(echo "$line" | jq -r .html_url)"
+  jira_issue="$(echo "$body" | grep -oE '[A-Z]{2,8}-[0-9]{1,6}' | head -1)"
+  if [ -n "$jira_issue" ]; then
+    jira_detail="$(jira-terminal detail "$jira_issue" | tail -n+2)"
+  fi
+
+  if [ -n "$jira_issue" ]; then
+    description="$(echo "$jira_detail" | head -1)"
+  else
+    description="$title"
+  fi
+
+  if [ -n "$interactive" ]; then
+    while true; do
+      msg "GitHub #$number $title by $user"
+      msg $'-------------------------------------'
+      msg "$(echo "$body" | head -5)"
+
+      if [ -n "$jira_issue" ]; then
+        msg
+        msg "Jira $jira_issue"
+        msg $'-------------------------------------'
+        msg "$(echo "$jira_detail" | head -5)"
+      fi
+
+      read -r -u 1 -p $'\n[(n)ext,(e)dit,(s)kip,(j)ira,(g)ithub]: ' answer
+      case "$answer" in
+        n|next)
+          break
+          ;;
+        e|edit)
+          read -r -u 1 -p "Description: " new_description
+          [ -n "$new_description" ] && description="$new_description"
+          ;;
+        s|skip)
+          description=""
+          break
+          ;;
+        j|jira)
+          if [ -n "$jira_issue" ]; then
+            open_url "$(jira_url "$jira_issue")"
+          else
+            msg "No Jira issue to open"
+          fi
+          ;;
+        g|github)
+          open_url "$gh_url"
+          ;;
+        *)
+          msg "Invalid option $answer"
+          ;;
+      esac
+    done
+  fi
+
+  if [ -n "$description" ]; then
+    detail_line="- $description"
+    if [ -n "$jira_issue" ]; then
+      detail_line+=" $jira_issue $(jira_url "$jira_issue")"
+    else
+      detail_line+=" (no Jira)"
+    fi
+    detail_list+=("$detail_line")
+    changelog_list+=("- ${title} #${number} ${user}")
+  fi
+done < <(echo "$changelog")
+
+if [ "${#changelog_list[@]}" -gt 0 ]; then
+  msg
+
+  for item in "${detail_list[@]}"; do
+    echo "$item"
+  done
+
+  printf '\n```\n'
+  for item in "${changelog_list[@]}"; do
+    echo "$item"
+  done
+  printf '```\n'
+fi
