@@ -11,7 +11,7 @@ RANGE: A commit range string for "git rev-list". By default, this is the
 OPTIONS
 -b       Branch - The git branch to operate on (default HEAD)
 -h       Help - Show this help message
--i       Interactive - Generate release notes interactively
+-i       Interactive - Review release notes interactively
 -o       Owner - The GitHub repository owner (defaults to the current repo owner)
 -r       Repo - The GitHub repository (defaults to the current repo)
 -s       Max Skips - The maximum number of PRs that will be skipped before
@@ -115,20 +115,34 @@ for line in "${changelog_json[@]}"; do
   if [ -n "$interactive" ]; then
     while true; do
       msg "GitHub #$number $title by $user"
-      msg $'-------------------------------------'
-      msg "$(echo "$body" | head -5)"
-
       if [ -n "$jira_issue" ]; then
-        msg
-        msg "Jira $jira_issue"
-        msg $'-------------------------------------'
-        msg "$(echo "$jira_detail" | head -5)"
+        msg "$jira_issue $(echo "$jira_detail" | head -1)"
       fi
+      msg "Description: $description"
 
-      read -r -p $'\n[(n)ext,(e)dit,(s)kip,(j)ira,(g)ithub]: ' answer
+      read -r -p '[(n)ext,(m)ore,(e)dit,(s)kip,(j)ira,(g)ithub]: ' answer
+      msg
       case "$answer" in
         n|next)
           break
+          ;;
+        m|more)
+          (
+            cat <<EOF
+GitHub #$number $title by $user
+::============================================::
+$body
+EOF
+
+            if [ -n "$jira_issue" ]; then
+              cat <<EOF
+
+$jira_issue
+::============================================::
+$jira_detail
+EOF
+            fi
+          ) | "${PAGER:-less}"
           ;;
         e|edit)
           read -r -p "Description: " new_description
