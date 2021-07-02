@@ -182,8 +182,6 @@ EOF
 done
 
 if [ "${#changelog_list[@]}" -gt 0 ]; then
-  [ -n "$interactive" ] && msg
-
   for item in "${detail_list[@]}"; do
     echo "$item"
   done
