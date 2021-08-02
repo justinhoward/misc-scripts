@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 usage() {
   cat >&2 <<EOF
 Usage: rngen [OPTIONS] [...RANGE]
@@ -40,9 +42,9 @@ usage_error() {
 }
 
 open_url() {
-  if command -v xdg-open 2>/dev/null; then
+  if command -v xdg-open > /dev/null; then
     xdg-open "$1"
-  elif command -v open 2>/dev/null; then
+  elif command -v open > /dev/null; then
     open "$1"
   else
     echo "$1"
@@ -103,7 +105,11 @@ for line in "${changelog_json[@]}"; do
   gh_url="$(echo "$line" | jq -r .html_url)"
   jira_issue="$(echo "$body" | grep -oE '[A-Z]{2,8}-[0-9]{1,6}' | head -1)"
   if [ -n "$jira_issue" ]; then
-    jira_detail="$(jira-terminal detail "$jira_issue" | tail -n+2)"
+    if ! jira_detail="$(jira-terminal detail "$jira_issue" | tail -n+2)"; then
+      msg "Error retrieving Jira issue $jira_issue: $jira_detail"
+      jira_issue=
+      jira_detail=
+    fi
   fi
 
   if [ -n "$jira_issue" ]; then
@@ -120,7 +126,9 @@ for line in "${changelog_json[@]}"; do
       fi
       msg "Description: $description"
 
-      read -r -p '[(d)one,(m)ore,(e)dit,(s)kip,(j)ira,(g)ithub]: ' answer
+      prompt='(d)one,(m)ore,(e)dit,(s)kip,(g)ithub'
+      [ -n "$jira_issue" ] && prompt+=',(j)ira'
+      read -r -p "[$prompt]: " answer
       msg
       case "$answer" in
         d|done)
