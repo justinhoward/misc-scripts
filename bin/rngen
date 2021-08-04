@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -e
 
 usage() {
   cat >&2 <<EOF
@@ -105,11 +105,7 @@ for line in "${changelog_json[@]}"; do
   gh_url="$(echo "$line" | jq -r .html_url)"
   jira_issue="$(echo "$body" | grep -oE '[A-Z]{2,8}-[0-9]{1,6}' | head -1)"
   if [ -n "$jira_issue" ]; then
-    if ! jira_detail="$(jira-terminal detail "$jira_issue" | tail -n+2)"; then
-      msg "Error retrieving Jira issue $jira_issue: $jira_detail"
-      jira_issue=
-      jira_detail=
-    fi
+    jira_detail="$(jira-terminal detail "$jira_issue" | tail -n+2)"
   fi
 
   if [ -n "$jira_issue" ]; then
