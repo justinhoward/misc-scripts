@@ -89,7 +89,7 @@ done
 shift $((OPTIND - 1))
 
 range=("$@")
-changelog_cmd=(gh-changelog "${range[@]}" -f json)
+changelog_cmd=(gh-changelog -f json "${range[@]}")
 while read -r line; do
   changelog_json+=("$line")
 done < <("${changelog_cmd[@]}")
