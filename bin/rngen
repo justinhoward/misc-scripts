@@ -105,7 +105,12 @@ for line in "${changelog_json[@]}"; do
   gh_url="$(echo "$line" | jq -r .html_url)"
   jira_issue="$(echo "$body" | grep -oE '[A-Z]{2,8}-[0-9]{1,6}' | head -1)"
   if [ -n "$jira_issue" ]; then
-    jira_detail="$(jira-terminal detail "$jira_issue" | tail -n+2)"
+    set -o pipefail
+    if ! jira_detail="$(jira-terminal detail "$jira_issue" | tail -n+2)"; then
+      jira_detail=
+      jira_issue=
+    fi
+    set +o pipefail
   fi
 
   if [ -n "$jira_issue" ]; then
