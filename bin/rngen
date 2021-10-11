@@ -12,6 +12,7 @@ RANGE: A commit range string for "git rev-list". By default, this is the
 
 OPTIONS
 -b       Branch - The git branch to operate on (default HEAD)
+-c       Close - Closes all jira issues
 -h       Help - Show this help message
 -i       Interactive - Review release notes interactively
 -o       Owner - The GitHub repository owner (defaults to the current repo owner)
@@ -73,9 +74,10 @@ if ! command -v jq > /dev/null; then
   error_exit 'The jq JSON parser is required https://stedolan.github.io/jq/'
 fi
 
-while getopts :b:hio:r:s:v opt; do
+while getopts :b:chio:r:s:v opt; do
   case "$opt" in
     b) changelog_opts+=(-b "$OPTARG") ;;
+    c) close_jira=1 ;;
     h) usage && exit ;;
     i) interactive=1 ;;
     o) changelog_opts+=(-o "$OPTARG") ;;
@@ -97,6 +99,7 @@ jira_namespace="$(jq -r .namespace < ~/.jira_terminal_configuration.json)"
 
 changelog_list=()
 detail_list=()
+jira_issues=()
 for line in "${changelog_json[@]}"; do
   title="$(echo "$line" | jq -r .title)"
   number="$(echo "$line" | jq -r .number)"
@@ -105,6 +108,7 @@ for line in "${changelog_json[@]}"; do
   gh_url="$(echo "$line" | jq -r .html_url)"
   jira_issue="$(echo "$body" | grep -oE '[A-Z]{2,8}-[0-9]{1,6}' | head -1)"
   if [ -n "$jira_issue" ]; then
+    jira_issues+=("$jira_issue")
     set -o pipefail
     if ! jira_detail="$(jira-terminal detail "$jira_issue" | tail -n+2)"; then
       jira_detail=
@@ -179,9 +183,9 @@ EOF
   fi
 
   if [ -n "$description" ]; then
-    detail_line="- $description"
+    detail_line="- $(echo "$description" | tr '[' '(' | tr ']' ')')"
     if [ -n "$jira_issue" ]; then
-      detail_line+=" $jira_issue $(jira_url "$jira_issue")"
+      detail_line+=" [$jira_issue]($(jira_url "$jira_issue"))"
     else
       detail_line+=" (no Jira)"
     fi
@@ -200,4 +204,12 @@ if [ "${#changelog_list[@]}" -gt 0 ]; then
     echo "$item"
   done
   printf '```\n'
+fi
+
+if [ -n "$close_jira" ]; then
+  for issue in "${jira_issues[@]}"; do
+    jira-terminal update "$issue" --field resolution --value Done > /dev/null \
+      && jira-terminal transition Closed --ticket "$issue" > /dev/null \
+      && msg "Closed $issue"
+  done
 fi
