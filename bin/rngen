@@ -16,6 +16,7 @@ OPTIONS
 -h       Help - Show this help message
 -i       Interactive - Review release notes interactively
 -o       Owner - The GitHub repository owner (defaults to the current repo owner)
+-p       Previous Release - Set RANGE from the second latest tag to the latest tag
 -r       Repo - The GitHub repository (defaults to the current repo)
 -s       Max Skips - The maximum number of PRs that will be skipped before
            deciding that we're done (default 50).
@@ -74,13 +75,14 @@ if ! command -v jq > /dev/null; then
   error_exit 'The jq JSON parser is required https://stedolan.github.io/jq/'
 fi
 
-while getopts :b:chio:r:s:v opt; do
+while getopts :b:chio:pr:s:v opt; do
   case "$opt" in
-    b) changelog_opts+=(-b "$OPTARG") ;;
+    b) changelog_opts+=(-b "$OPTARG"); branch="$OPTARG";;
     c) close_jira=1 ;;
     h) usage && exit ;;
     i) interactive=1 ;;
     o) changelog_opts+=(-o "$OPTARG") ;;
+    p) previous_release=1 ;;
     r) changelog_opts+=(-r "$OPTARG") ;;
     s) changelog_opts+=(-s "$OPTARG") ;;
     v) verbose=1 ;;
@@ -91,6 +93,20 @@ done
 shift $((OPTIND - 1))
 
 range=("$@")
+
+if [ -n "$previous_release" ]; then
+  [ "${#range[@]}" -gt 0 ] && usage_error 'Cannot specify -p and RANGE'
+
+  if [ -z "$branch" ]; then
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    [ "$?" -ne 0 ] && error_exit 'Could not get git head branch name'
+  fi
+
+  latest="$(git describe --tags --abbrev=0 "$branch")"
+  previous="$(git describe --tags --abbrev=0 "$latest^")"
+  range=("$previous..$latest")
+fi
+
 changelog_cmd=(gh-changelog -f json "${range[@]}")
 while read -r line; do
   changelog_json+=("$line")
