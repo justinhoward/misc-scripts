@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+
+usage() {
+  cat >&2 <<EOF
+Usage: ami-prune [OPTIONS]
+Prune AWS EC2 AMIs based on usage
+
+OPTIONS
+-h              Help - Show this help message
+-i              Interactive - Delete AMIs interactively
+-n              Dry run - Print the matching instance ID instead of connecting
+-p PROFILE      Profile - An AWS CLI profile. Allows multiple.
+-r REGION       Region - An AWS region. Allows multiple.
+-R              All regions - Search all AWS regions
+-v              Verbose - Print verbose messaging
+EOF
+}
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+error_exit() {
+  msg "$@"
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+verbose() {
+  [ -n "$verbose" ] && msg "$@"
+}
+
+while getopts :hinp:r:Rv opt; do
+  case "$opt" in
+    h) usage && exit ;;
+    i) interactive=1 ;;
+    n) dry_run=1 ;;
+    p) profiles+=("$OPTARG") ;;
+    r) regions+=("$OPTARG") ;;
+    R) all_regions=1 ;;
+    v) verbose=1 ;;
+    \?) usage_error "Invalid option -${OPTARG}" ;;
+    :) usage_error "Missing value for option -${OPTARG}" ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+if ! command -v aws >/dev/null; then
+  error 'The aws CLI is required'
+fi
+
+set_aws_args() {
+  profile="$1"
+  region="$2"
+  aws_args=()
+  [ -n "$profile" ] && aws_args+=(--profile "$profile")
+  [ -n "$region" ] && aws_args+=(--region "$region")
+}
+
+set_all_regions() {
+  regions=()
+  region_cmd=(
+    aws ec2 describe-regions
+      --output text
+      --query 'Regions[*].[RegionName]'
+  )
+  [ "${#profiles[@]}" -gt 0 ] && region_cmd+=(--profile "${profiles[0]}")
+  [ "${#regions[@]}" -gt 0 ] && region_cmd+=(--region "${regions[0]}")
+  while read -r region; do
+    regions+=("$region")
+  done < <(print_run "${region_cmd[@]}")
+}
+
+scan() {
+  ami_lines=()
+  while read -r line; do
+    ami_lines+=("$line")
+  done < <(
+    aws "${aws_args[@]}" \
+    ec2 describe-images \
+    --owners self \
+    --query 'Images[*].[ImageId,Name]' \
+    --output text
+  )
+
+  for ami in "${ami_lines[@]}"; do
+    ami_id="$(echo "$ami" | cut -d$'\t' -f1)"
+    name="$(echo "$ami" | cut -d$'\t' -f2)"
+    instances="$(
+      aws "${aws_args[@]}" ec2 describe-instances \
+      --filters Name=image-id,Values="$ami_id" \
+      --query "Reservations[].Instances[].Tags[?Key=='Name'].Value" \
+      --output text
+    )"
+
+    instance_count="$(echo -n "$instances" | grep -c '^')"
+    instance_list="$(echo "$instances" | head -n1 | paste -sd, -)"
+    [ "$instance_count" -gt 1 ] && instance_list="${instance_list},.."
+
+    msg "$ami_id $name $instance_count $instance_list"
+    delete=
+    if [ "$instance_count" -gt 0 ]; then
+      delete=
+    elif [ -n "$dry_run" ]; then
+      delete=
+    elif [ -n "$interactive" ]; then
+      read -rp 'Delete (y/N): ' answer
+      [ "$answer" = y ] && delete=1
+    else
+      delete=1
+    fi
+
+    if [ "$delete" = 1 ]; then
+      delete_ami "$ami_id"
+    fi
+  done
+}
+
+delete_ami() {
+  ami_id="$1"
+  snapshots=()
+  while read -r line; do
+    snapshots+=("$line")
+  done < <(
+    aws "${aws_args[@]}" \
+    ec2 describe-images \
+    --owners self \
+    --image-ids "$1" \
+    --query 'Images[].BlockDeviceMappings[].Ebs.SnapshotId' \
+    --output text
+  )
+
+  verbose "Deregistering AMI $ami_id"
+  aws "${aws_args[@]}" ec2 deregister-image --image-id "$ami_id"
+
+  for snap_id in "${snapshots[@]}"; do
+    verbose "Deleting snapshot $snap_id"
+    aws "${aws_args[@]}" ec2 delete-snapshot --snapshot-id "$snap_id"
+  done
+}
+
+[ "${#profiles[@]}" = 0 ] && profiles=('')
+[ "${#regions[@]}" = 0 ] && regions=('')
+[ -n "$all_regions" ] && set_all_regions
+
+run() {
+  for profile in "${profiles[@]}"; do
+    for region in "${regions[@]}"; do
+      set_aws_args "$profile" "$region"
+      scan
+    done
+  done
+}
+
+run
