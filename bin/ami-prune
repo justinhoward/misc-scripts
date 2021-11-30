@@ -35,8 +35,9 @@ verbose() {
   [ -n "$verbose" ] && msg "$@"
 }
 
-while getopts :hinp:r:Rv opt; do
+while getopts :fhinp:r:Rv opt; do
   case "$opt" in
+    f) force=1 ;;
     h) usage && exit ;;
     i) interactive=1 ;;
     n) dry_run=1 ;;
@@ -111,8 +112,10 @@ scan() {
     elif [ -n "$interactive" ]; then
       read -rp 'Delete (y/N): ' answer
       [ "$answer" = y ] && delete=1
-    else
+    elif [ -n "$force" ]; then
       delete=1
+    else
+      delete=
     fi
 
     if [ "$delete" = 1 ]; then
