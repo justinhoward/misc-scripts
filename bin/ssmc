@@ -46,16 +46,16 @@ OPTIONS
 EOF
 }
 
-msg() {
+error() {
   printf '%s\n' "$*" >&2
 }
 
 verbose() {
-  [ -n "$verbose" ] && msg "$@"
+  [ -n "$verbose" ] && error "$@"
 }
 
 error_exit() {
-  msg "$@"
+  error "$@"
   exit 1
 }
 
@@ -181,6 +181,6 @@ session_cmd=(aws ssm start-session --target "$instance_id")
 [ -n "$profile" ] && session_cmd+=(--profile "$profile")
 [ -n "$region" ] && session_cmd+=(--region "$region")
 
-msg "Connecting to ${chosen_parts[*]:3} (${instance_id} in ${region})"
+error "Connecting to ${chosen_parts[*]:3} (${instance_id} in ${region})"
 verbose "${session_cmd[@]}"
 exec "${session_cmd[@]}"
