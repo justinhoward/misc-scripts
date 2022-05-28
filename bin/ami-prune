@@ -5,7 +5,15 @@ usage() {
 Usage: ami-prune [OPTIONS]
 Prune AWS EC2 AMIs based on usage
 
+This tool searches through all AMIs and counts the number of times they are
+used by an EC2 instance. If they are unused, they can be deleted with
+interactive mode -i, or with the -f force option.
+
+When AMIs are deleted, they are deregistered, then all associated snapshots
+are deleted.
+
 OPTIONS
+-f              Force - Delete all unused AMIs without prompting
 -h              Help - Show this help message
 -i              Interactive - Delete AMIs interactively
 -n              Dry run - Print the matching instance ID instead of connecting
@@ -134,7 +142,7 @@ delete_ami() {
     ec2 describe-images \
     --owners self \
     --image-ids "$1" \
-    --query 'Images[].BlockDeviceMappings[].Ebs.SnapshotId' \
+    --query 'Images[].BlockDeviceMappings[].Ebs.[SnapshotId]' \
     --output text
   )
 
