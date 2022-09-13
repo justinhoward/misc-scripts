@@ -1,11 +1,71 @@
 #!/usr/bin/env sh
 
+usage() {
+  cat >&2 <<EOF
+Usage: git-workhash [OPTIONS]
+Generate a git hash based on the current commit and unstaged changes.
+
+EXAMPLES
+
+$ git-workhash
+934f9706c-a638498d0
+
+OPTIONS
+-a LENGTH       Abbreviate - Abbreviates the commit ref and tree hash to the specified length
+-A              No abbreviate - Do not abbreviate hashes
+-h              Help - Show this help message
+EOF
+}
+
+error() {
+  printf '%s\n' "$*" >&2
+}
+
+error_exit() {
+  error "$@"
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  usage
+  exit 1
+}
+
+abbrev=9
+while getopts :a:Ah opt; do
+  case "$opt" in
+    a) abbrev="$OPTARG" ;;
+    A) abbrev='' ;;
+    h) usage && exit ;;
+    \?) usage_error "Invalid option -${OPTARG}" ;;
+    :) usage_error "Missing value for option -${OPTARG}" ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+if ! command -v git >/dev/null; then
+  error_exit 'git is required'
+fi
+
+if ! [[ "$abbrev" =~ ^[0-9]+$ ]]; then
+  error_exit '-a must be an integer'
+fi
+
 GIT_INDEX_FILE="$(mktemp)"
 export GIT_INDEX_FILE
 trap 'rm -f "$GIT_INDEX_FILE"' EXIT
 
-cp "$(git rev-parse --show-toplevel)/.git/index" "$GIT_INDEX_FILE"
+toplevel="$(git rev-parse --show-toplevel)" || error_exit 'Could not repository top-level'
+cp "$toplevel/.git/index" "$GIT_INDEX_FILE" || error_exit 'Could not copy index file'
 
-printf '%.9s-%.9s\n' \
-  "$(git rev-parse HEAD)" \
-  "$(git add -A && git write-tree && git reset > /dev/null)"
+current_ref="$(git rev-parse HEAD)" || error_exit 'Could not get current commit ID'
+git add -A || error_exit 'Could not stage to temporary index file'
+tree="$(git write-tree)"
+if [ -n "$abbrev" ]; then
+  pattern="%.${abbrev}s-%.${abbrev}s\n"
+else
+  pattern='%s-%s\n'
+fi
+
+printf "$pattern" "$current_ref" "$tree"
