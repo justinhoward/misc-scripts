@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-set -f
+set -o noglob
 
 usage() {
   cat >&2 <<EOF
-Usage: ssmc [OPTIONS] [NAME...]
+Usage: $(basename "$0") [OPTIONS] [NAME...]
 Systems Manager Connect
 
 Connect to an EC2 instance via AWS SSM session manager
@@ -26,23 +26,27 @@ A word to search for in the EC2 instance Name tag. If multiple are given, they
 will be ANDed together.
 
 OPTIONS
--c COLUMNS      Columns - A comma-separated list of columns to display.
-                  Defaults to "name". See "ec2-search -h" for more info.
--f FILTERS       Filters - A filter for the native aws ec2 command.
-                   The format is "Name=<filter>,Values=<value>,<value>"
-                   Allows multiple instances of -f.
-                   See "aws ec2 describe-instances help" for a full list.
--h              Help - Show this help message
--i INSTANCE_ID  Instance ID - Connect to INSTANCE_ID directly
--l              Show List - Force printing the list even for only 1 option
--n              Dry run - Print the matching instance ID instead of connecting
--p PROFILE      Profile - An AWS CLI profile. Allows multiple.
--r REGION       Region - An AWS region. Allows multiple.
--R              All regions - Search all AWS regions
--s              Select - Select a number without showing the list
--t NAME=VAL     Tag - Tag to search for. Multiples can be specified and will be
-                  ANDed together.
--v              Verbose - Print verbose messaging
+All long (--option) options require GNU getopt to be in your path. On OS X,
+install the gnu-getopt package and follow the instructions to add it to your
+path for your shell.
+
+-c|--columns COLUMNS          A comma-separated list of columns to display.
+                              Defaults to "name". See "ec2-search -h" for more info.
+-f|--filters FILTERS          A filter for the native aws ec2 command.
+                                The format is "Name=<filter>,Values=<value>,<value>"
+                                Allows multiple instances of -f.
+                                See "aws ec2 describe-instances help" for a full list.
+-h|--help                     Show this help message
+-i|--instance-id INSTANCE_ID  Connect to INSTANCE_ID directly
+-l|--list                     Force printing the list even for only 1 option
+-n|--dry-run                  Print the matching instance ID instead of connecting
+-p|--profile PROFILE          An AWS CLI profile. Allows multiple.
+-r|--region REGION            An AWS region. Allows multiple.
+-R|--all-regions              All regions - Search all AWS regions
+-s|--select                   Select a number without showing the list
+-t|--tags NAME=VAL            Tag to search for. Multiples can be specified and will be
+                                ANDed together.
+-v|--verbose                  Print verbose messaging
 EOF
 }
 
@@ -70,37 +74,63 @@ print_run() {
   "$@"
 }
 
-while getopts :c:f:hi:lnp:r:Rs:t:v opt; do
-  case "$opt" in
-    c) columns="$OPTARG" ;;
-    f) filters+=("$OPTARG") ;;
-    h) usage && exit ;;
-    i) provided_instance_id="$OPTARG" ;;
-    l) list=1 ;;
-    n) dry_run=1 ;;
-    p) profiles+=("$OPTARG") ;;
-    r) regions+=("$OPTARG") ;;
-    R) all_regions=1 ;;
-    s) choose="$OPTARG" ;;
-    t) tags+=("$OPTARG") ;;
-    v) verbose=1 ;;
-    \?) usage_error "Invalid option -${OPTARG}" ;;
-    :) usage_error "Missing value for option -${OPTARG}" ;;
+shortopts='c:f:hi:lnp:r:Rs:t:v'
+longopts='columns:,filters:,help,instance-id:,list,dry-run,profile:,region:,all-regions,select:,tags:,verbose'
+
+if ! getopt -T > /dev/null; then
+  options="$(getopt \
+    --options "$shortopts" \
+    --long "$longopts" \
+    -n "$(basename "$0")" \
+    -- "$@" \
+  )" || exit
+else
+  while getopts ":$shortopts" opt; do
+    if [ "$opt" = '?' ]; then
+      usage_error "Invalid option -${OPTARG}"
+    elif [ "$opt" = ':' ]; then
+      usage_error "Missing value for option -${OPTARG}"
+    elif [ -n "${OPTARG+set}" ]; then
+      options+="'-$opt' $OPTARG "
+    else
+      options+="'-$opt' "
+    fi
+  done
+  shift $((OPTIND - 1))
+  options+="-- $*"
+fi
+
+eval set -- "$options"
+
+while true; do
+  case "$1" in
+    -c|--columns) columns="$2"; shift 2 ;;
+    -f|--filters) filters+=("$2"); shift 2 ;;
+    -h|--help) usage && exit ;;
+    -i|--instance-id) provided_instance_id="$2"; shift 2 ;;
+    -l|--list) list=1; shift ;;
+    -n|--dry-run) dry_run=1; shift ;;
+    -p|--profile) profiles+=("$2"); shift 2 ;;
+    -r|--region) regions+=("$2"); shift 2 ;;
+    -R|--all-regions) all_regions=1; shift ;;
+    -s|--select) choose="$2"; shift 2 ;;
+    -t|--tags) tags+=("$2"); shift 2 ;;
+    -v|--verbose) verbose=1; shift ;;
+    --) shift; break ;;
   esac
 done
-shift $((OPTIND - 1))
 
 if ! command -v aws >/dev/null; then
-  error 'The aws CLI is required'
+  error_exit 'The aws CLI is required'
 fi
 
 if ! command -v ec2-search >/dev/null; then
-  error 'The ec2-search is required'
+  error_exit 'The ec2-search is required'
 fi
 
 if ! command -v session-manager-plugin >/dev/null; then
   error 'The AWS session-manager-plugin is required'
-  error 'https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html'
+  error_exit 'https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html'
 fi
 
 [ -z "$columns" ] && columns=name
