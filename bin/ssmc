@@ -85,19 +85,10 @@ if ! getopt -T > /dev/null; then
     -- "$@" \
   )" || exit
 else
-  while getopts ":$shortopts" opt; do
-    if [ "$opt" = '?' ]; then
-      usage_error "Invalid option -${OPTARG}"
-    elif [ "$opt" = ':' ]; then
-      usage_error "Missing value for option -${OPTARG}"
-    elif [ -n "${OPTARG+set}" ]; then
-      options+="'-$opt' $OPTARG "
-    else
-      options+="'-$opt' "
-    fi
-  done
-  shift $((OPTIND - 1))
-  options+="-- $*"
+  options="$(getopt \
+    "$shortopts" \
+    "$@" \
+  )" || exit
 fi
 
 eval set -- "$options"
