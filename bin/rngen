@@ -215,21 +215,25 @@ EOF
 done
 
 if [ "${#changelog_list[@]}" -gt 0 ]; then
-  detail_msg="$(printf '%s\n' "${detail_list[*]}")"
+  repo_name="$(gh repo view --json name --jq .name)"
+  tag_date="$(date +'%Y.%m.%d')"
+  tag_name="v$tag_date"
+  tag_suffix=
+  while git show-ref "$tag_name" > /dev/null; do
+    tag_suffix=$((tag_suffix + 1))
+    tag_name="v$tag_date.$tag_suffix"
+  done
+  # shellcheck disable=2016
+  printf '%s `%s`\n\n' "$repo_name" "$tag_name"
+
+  detail_msg="$(printf '%s\n' "${detail_list[@]}")"
   printf '%s\n' "$detail_msg"
 
-  changelog_msg="$(printf '%s\n' "${changelog_list[*]}")"
+  changelog_msg="$(printf '%s\n' "${changelog_list[@]}")"
   # shellcheck disable=2016
   printf '\n```\n%s\n```\n' "$changelog_msg"
 
   if [ -n "$tag_flag" ]; then
-    tag_date="$(date +'%Y.%m.%d')"
-    tag_name="v$tag_date"
-    tag_suffix=
-    while git show-ref "$tag_name" > /dev/null; do
-      tag_suffix=$((tag_suffix + 1))
-      tag_name="v$tag_date.$tag_suffix"
-    done
     tag_msg="$(printf 'Release %s\n\n%s' "$tag_name" "$changelog_msg")"
     git tag -"$tag_flag" -m "$tag_msg" "$tag_name"
 
