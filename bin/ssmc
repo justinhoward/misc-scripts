@@ -77,14 +77,20 @@ $(color 4 Filtering by Tags)
 EOF
 }
 
-error() {
+msg() {
   tput setaf 1
   printf '%s\n' "$*" >&2
   tput sgr0
 }
 
+error() {
+  tput setaf 1
+  msg "$@"
+  tput sgr0
+}
+
 verbose() {
-  [ -n "$verbose" ] && error "$@"
+  [ -n "$verbose" ] && msg "$@"
 }
 
 error_exit() {
@@ -241,6 +247,6 @@ session_cmd=(aws ssm start-session --target "$instance_id")
 [ -n "$profile" ] && session_cmd+=(--profile "$profile")
 [ -n "$region" ] && session_cmd+=(--region "$region")
 
-error "Connecting to ${chosen_parts[*]:3} (${instance_id} in ${region})"
+msg "$(color 2 "Connecting to ${chosen_parts[*]:3} (${instance_id} in ${region})")" ''
 verbose "${session_cmd[@]}"
 exec "${session_cmd[@]}"
