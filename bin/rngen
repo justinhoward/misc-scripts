@@ -3,26 +3,75 @@
 set -e
 
 usage() {
+  summary
+  msg && arguments
+  [ -n "$1" ] && msg && examples
+}
+
+summary() {
   cat >&2 <<EOF
-Usage: rngen [OPTIONS] [...RANGE]
+Usage: $(color 2 "$(basename "$0")") [OPTIONS] [...RANGE]
 Interactively generate release notes
+EOF
+}
 
-RANGE: A commit range string for "git rev-list". By default, this is the
-  latest tag to the current HEAD.
+arguments() {
+  cat >&2 <<EOF
+$(color 3 RANGE)
+A commit range string for "git rev-list". By default, this is the
+latest tag to the current HEAD.
 
-OPTIONS
--b       Branch - The git branch to operate on (default HEAD)
--c       Close - Closes all jira issues
--h       Help - Show this help message
--i       Interactive - Review release notes interactively
--o       Owner - The GitHub repository owner (defaults to the current repo owner)
--p       Previous Release - Set RANGE from the second latest tag to the latest tag
--r       Repo - The GitHub repository (defaults to the current repo)
--s       Max Skips - The maximum number of PRs that will be skipped before
-           deciding that we're done (default 50).
--t       Tag - Automatically create an annotated git tag in the format vYY.MM.DD
--T       Signed Tag - Same as -t, but signs the tag
--v       Verbose - Print verbose messaging
+$(color 3 OPTIONS)
+$(color 2 "-b|--branch") BRANCH     The git branch to operate on (default HEAD)
+$(color 2 "-c|--close-jira")        Closes all jira issues
+$(color 2 "-h|--help")              Show this help message
+$(color 2 "-i|--interactive")       Review release notes interactively. Interactive output is 
+                         sent to STDERR so notes can still be piped
+$(color 2 "-o|--owner") OWNER       The GitHub repository owner (defaults to the current repo owner)
+$(color 2 "-p|--previous-release")  Set RANGE from the second latest tag to the latest tag
+$(color 2 "-r|--repo") REPO         The GitHub repository (defaults to the current repo)
+$(color 2 "-s|--max-skips") SKIPS   The maximum number of PRs that will be skipped before
+                         deciding that we're done (default 50).
+$(color 2 "-t|--tag")               Automatically create an annotated git tag in the format vYY.MM.DD
+$(color 2 "-T|--signed-tag")        Same as -t, but signs the tag
+$(color 2 "-v|--verbose")           Print verbose messaging
+EOF
+}
+
+examples() {
+  cat >&2 <<EOF
+$(color 3 EXAMPLES)
+
+$(color 4 Interactive Mode)
+$ rngen -iT
+GitHub #4329 DEV-3145 Remove spacebar heating by randallm
+DEV-3145 CPU overheats when holding down spacebar
+Description: CPU overheats when holding down spacebar
+[(d)one,(m)ore,(e)dit,(s)kip,(g)ithub,(j)ira]: d
+
+GitHub #4337 DEV-3163 Fix epoch fail by randallm
+DEV-3163 Crash when using pre-1970 dates
+Description: Crash when using pre-1970 dates
+[(d)one,(m)ore,(e)dit,(s)kip,(g)ithub,(j)ira]: d
+
+foobar \`v2022.11.16.1\`
+
+- CPU overheats when holding down spacebar [DEV-3145](https://foo.atlassian.net/browse/DEV-3145)
+- Crash when using pre-1970 dates [DEV-3163](https://foo.atlassian.net/browse/DEV-3163)
+
+\`\`\`
+- DEV-3145 Remove spacebar heating #4329 randallm
+- DEV-3163 Fix epoch fail #4337 randallm
+\`\`\`
+
+Tagged release v2022.11.16.1
+Push v2022.11.16.1 to upstream origin? (y/N): y
+
+$(color 4 With Range)
+$ rngen v2022.11.03..v2022.11.05
+
+$(color 4 Close Issues from Previous Release)
+$ rngen -pc
 EOF
 }
 
@@ -34,15 +83,31 @@ verbose() {
   [ -n "$verbose" ] && msg "$@"
 }
 
-error_exit() {
+color() {
+  tput setaf "$1"
+  echo -n "${@:2}"
+  tput sgr0
+}
+
+err() {
+  tput setaf 1
   msg "$@"
+  tput sgr0
+}
+
+error_exit() {
+  err "$@"
   exit 1
 }
 
 usage_error() {
-  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  [ "$#" -gt 0 ] && err "$@" $'\n'
   usage
   exit 1
+}
+
+getopt_error() {
+  usage_error "$(echo "$1" | sed -n 's/.*: //1p')"
 }
 
 open_url() {
@@ -77,24 +142,41 @@ if ! command -v jq > /dev/null; then
   error_exit 'The jq JSON parser is required https://stedolan.github.io/jq/'
 fi
 
-while getopts :b:chio:pr:s:tTv opt; do
-  case "$opt" in
-    b) changelog_opts+=(-b "$OPTARG"); branch="$OPTARG";;
-    c) close_jira=1 ;;
-    h) usage && exit ;;
-    i) interactive=1 ;;
-    o) changelog_opts+=(-o "$OPTARG") ;;
-    p) previous_release=1 ;;
-    r) changelog_opts+=(-r "$OPTARG") ;;
-    s) changelog_opts+=(-s "$OPTARG") ;;
-    t) tag_flag=a ;;
-    T) tag_flag=s ;;
-    v) verbose=1 ;;
-    \?) usage_error "Invalid option -${OPTARG}" ;;
-    :) usage_error "Missing value for option -${OPTARG}" ;;
+shortopts='b:chio:pr:s:tTv'
+longopts='branch:,close-jira,help,interactive,owner:,previous-release,repo:,max-skips:,tag,signed-tag,verbose'
+
+if ! getopt -T > /dev/null; then
+  options="$(getopt \
+    --options "$shortopts" \
+    --long "$longopts" \
+    -n "$(basename "$0")" \
+    -- "$@" \
+  2>&1)" || getopt_error "$options"
+else
+  options="$(getopt \
+    "$shortopts" \
+    "$@" \
+  2>&1)" || getopt_error "$options"
+fi
+
+eval set -- "$options"
+
+while true; do
+  case "$1" in
+    -b|--branch) changelog_opts+=(-b "$2"); branch="$2"; shift 2;;
+    -c|--close-jira) close_jira=1; shift ;;
+    -h|--help) usage 1 && exit ;;
+    -i|--interactive) interactive=1; shift ;;
+    -o|--owner) changelog_opts+=(-o "$2"); shift 2;;
+    -p|--previous-release) previous_release=1; shift ;;
+    -r|--repo) changelog_opts+=(-r "$2"); shift 2 ;;
+    -s|--max-skips) changelog_opts+=(-s "$2"); shift 2 ;;
+    -t|--tag) tag_flag=a; shift ;;
+    -T|--signed-tag) tag_flag=s; shift ;;
+    -v|--verbose) verbose=1; shift ;;
+    --) shift; break ;;
   esac
 done
-shift $((OPTIND - 1))
 
 range=("$@")
 
@@ -189,14 +271,14 @@ EOF
           if [ -n "$jira_issue" ]; then
             open_url "$(jira_url "$jira_issue")"
           else
-            msg "No Jira issue to open"
+            err "No Jira issue to open"
           fi
           ;;
         g|github)
           open_url "$gh_url"
           ;;
         *)
-          msg "Invalid option $answer"
+          err "Invalid option $answer"
           ;;
       esac
     done
