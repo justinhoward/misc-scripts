@@ -78,9 +78,7 @@ EOF
 }
 
 msg() {
-  tput setaf 1
   printf '%s\n' "$*" >&2
-  tput sgr0
 }
 
 error() {
@@ -207,11 +205,11 @@ else
       while IFS='' read -r part; do
         parts+=("$part");
       done < <(echo "$result" | tr $'\t' $'\n')
-      echo "${number}) ${parts[*]:3}" >&2
+      echo "$(color 4 "${number}")) ${parts[*]:3}" >&2
       number=$((number + 1))
     done
 
-    echo -n '> ' >&2
+    echo -n "$(color 2 '> ')" >&2
     read -r choose
   fi
 
@@ -247,6 +245,6 @@ session_cmd=(aws ssm start-session --target "$instance_id")
 [ -n "$profile" ] && session_cmd+=(--profile "$profile")
 [ -n "$region" ] && session_cmd+=(--region "$region")
 
-msg "$(color 2 "Connecting to ${chosen_parts[*]:3} (${instance_id} in ${region})")" ''
+msg "Connecting to $(color 2 "${chosen_parts[*]:3}") ($(color 4 "${instance_id}") in $(color 4 "${region}"))" ''
 verbose "${session_cmd[@]}"
 exec "${session_cmd[@]}"
