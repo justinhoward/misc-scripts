@@ -2,56 +2,85 @@
 set -o noglob
 
 usage() {
+  summary
+  echo 1>&2 && arguments
+  [ -n "$1" ] && echo 1>&2 && examples
+}
+
+summary() {
   cat >&2 <<EOF
-Usage: $(basename "$0") [OPTIONS] [NAME...]
+Usage: $(color 2 "$(basename "$0")") [OPTIONS] [NAME...]
 Systems Manager Connect
 
 Connect to an EC2 instance via AWS SSM session manager
+EOF
+}
 
-EXAMPLES
-
-$ ssmc production web
-Starting session with SessionId: justin-0746d171d9f3869c1
-sh-4.2$
-
-$ ssmc web
-1) production-web
-2) staging-web
-> 2
-Starting session with SessionId: justin-0746d171d9f3869c1
-sh-4.2$
-
-NAME
+arguments() {
+  cat >&2 <<EOF
+$(color 3 NAME)
 A word to search for in the EC2 instance Name tag. If multiple are given, they
 will be ANDed together.
 
-OPTIONS
+$(color 3 OPTIONS)
 All long (--option) options require GNU getopt to be in your path. On OS X,
 install the gnu-getopt package and follow the instructions to add it to your
 path for your shell.
 
--c|--columns COLUMNS          A comma-separated list of columns to display.
+$(color 2 "-c|--columns") COLUMNS          A comma-separated list of columns to display.
                               Defaults to "name". See "ec2-search -h" for more info.
--f|--filters FILTERS          A filter for the native aws ec2 command.
+$(color 2 "-f|--filters") FILTERS          A filter for the native aws ec2 command.
                                 The format is "Name=<filter>,Values=<value>,<value>"
                                 Allows multiple instances of -f.
                                 See "aws ec2 describe-instances help" for a full list.
--h|--help                     Show this help message
--i|--instance-id INSTANCE_ID  Connect to INSTANCE_ID directly
--l|--list                     Force printing the list even for only 1 option
--n|--dry-run                  Print the matching instance ID instead of connecting
--p|--profile PROFILE          An AWS CLI profile. Allows multiple.
--r|--region REGION            An AWS region. Allows multiple.
--R|--all-regions              All regions - Search all AWS regions
--s|--select                   Select a number without showing the list
--t|--tags NAME=VAL            Tag to search for. Multiples can be specified and will be
+$(color 2 "-h|--help")                     Show this help message
+$(color 2 "-i|--instance-id") INSTANCE_ID  Connect to INSTANCE_ID directly
+$(color 2 "-l|--list")                     Force printing the list even for only 1 option
+$(color 2 "-n|--dry-run")                  Print the matching instance ID instead of connecting
+$(color 2 "-p|--profile") PROFILE          An AWS CLI profile. Allows multiple.
+$(color 2 "-r|--region") REGION            An AWS region. Allows multiple.
+$(color 2 "-R|--all-regions")              All regions - Search all AWS regions
+$(color 2 "-s|--select")                   Select a number without showing the list
+$(color 2 "-t|--tags") NAME=VAL            Tag to search for. Multiples can be specified and will be
                                 ANDed together.
--v|--verbose                  Print verbose messaging
+$(color 2 "-v|--verbose")                  Print verbose messaging
+EOF
+}
+
+examples() {
+  cat >&2 <<EOF
+$(color 3 EXAMPLES)
+$(color 4 No Selection if Single Choice)
+\$ ssmc production web
+Starting session with SessionId: justin-0746d171d9f3869c1
+sh-4.2\$
+
+$(color 4 Multiple Choices)
+\$ ssmc web
+1) production-web
+2) staging-web
+> 2
+Starting session with SessionId: justin-0746d171d9f3869c1
+sh-4.2\$
+
+$(color 4 Specifying Columns)
+\$ ssmc web -c'name,launch-time'
+1) production-web 2022-11-23T10:30:19+00:00
+2) sandbox-web 2022-11-23T15:39:39+00:00
+3) staging-web 2022-11-23T17:02:33+00:00
+4) production-web 2022-11-23T19:41:10+00:00
+
+$(color 4 Filtering by Tags)
+\$ ssmc web -t Environment=production
+1) parentsquare-production-web
+2) parentsquare-production-web
 EOF
 }
 
 error() {
+  tput setaf 1
   printf '%s\n' "$*" >&2
+  tput sgr0
 }
 
 verbose() {
@@ -64,9 +93,19 @@ error_exit() {
 }
 
 usage_error() {
-  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  [ "$#" -gt 0 ] && error "$@" $'\n'
   usage
   exit 1
+}
+
+getopt_error() {
+  usage_error "$(echo "$1" | sed -n 's/.*: //1p')"
+}
+
+color() {
+  tput setaf "$1"
+  echo -n "${@:2}"
+  tput sgr0
 }
 
 print_run() {
@@ -83,12 +122,12 @@ if ! getopt -T > /dev/null; then
     --long "$longopts" \
     -n "$(basename "$0")" \
     -- "$@" \
-  )" || exit
+  2>&1)" || getopt_error "$options"
 else
   options="$(getopt \
     "$shortopts" \
     "$@" \
-  )" || exit
+  2>&1)" || getopt_error "$options"
 fi
 
 eval set -- "$options"
@@ -97,7 +136,7 @@ while true; do
   case "$1" in
     -c|--columns) columns="$2"; shift 2 ;;
     -f|--filters) filters+=("$2"); shift 2 ;;
-    -h|--help) usage && exit ;;
+    -h|--help) usage 1 && exit ;;
     -i|--instance-id) provided_instance_id="$2"; shift 2 ;;
     -l|--list) list=1; shift ;;
     -n|--dry-run) dry_run=1; shift ;;
