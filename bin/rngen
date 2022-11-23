@@ -2,6 +2,8 @@
 
 set -e
 
+export LESS="$LESS -R"
+
 usage() {
   summary
   msg && arguments
@@ -27,11 +29,12 @@ $(color 2 "-c|--close-jira")        Closes all jira issues
 $(color 2 "-h|--help")              Show this help message
 $(color 2 "-i|--interactive")       Review release notes interactively. Interactive output is 
                          sent to STDERR so notes can still be piped
+$(color 2 "-N|--no-color")          Don't output any ANSI colors
 $(color 2 "-o|--owner") OWNER       The GitHub repository owner (defaults to the current repo owner)
 $(color 2 "-p|--previous-release")  Set RANGE from the second latest tag to the latest tag
 $(color 2 "-r|--repo") REPO         The GitHub repository (defaults to the current repo)
 $(color 2 "-s|--max-skips") SKIPS   The maximum number of PRs that will be skipped before
-                         deciding that we're done (default 50).
+                                      deciding that we're done (default 50).
 $(color 2 "-t|--tag")               Automatically create an annotated git tag in the format vYY.MM.DD
 $(color 2 "-T|--signed-tag")        Same as -t, but signs the tag
 $(color 2 "-v|--verbose")           Print verbose messaging
@@ -84,15 +87,15 @@ verbose() {
 }
 
 color() {
-  tput setaf "$1"
+  [ -z "$no_color" ] && tput setaf "$1"
   echo -n "${@:2}"
-  tput sgr0
+  [ -z "$no_color" ] && tput sgr0
 }
 
 err() {
-  tput setaf 1
+  [ -z "$no_color" ] && tput setaf 1
   msg "$@"
-  tput sgr0
+  [ -z "$no_color" ] && tput sgr0
 }
 
 error_exit() {
@@ -142,8 +145,8 @@ if ! command -v jq > /dev/null; then
   error_exit 'The jq JSON parser is required https://stedolan.github.io/jq/'
 fi
 
-shortopts='b:chio:pr:s:tTv'
-longopts='branch:,close-jira,help,interactive,owner:,previous-release,repo:,max-skips:,tag,signed-tag,verbose'
+shortopts='b:chiNo:pr:s:tTv'
+longopts='branch:,close-jira,help,interactive,no-color,owner:,previous-release,repo:,max-skips:,tag,signed-tag,verbose'
 
 if ! getopt -T > /dev/null; then
   options="$(getopt \
@@ -165,8 +168,9 @@ while true; do
   case "$1" in
     -b|--branch) changelog_opts+=(-b "$2"); branch="$2"; shift 2;;
     -c|--close-jira) close_jira=1; shift ;;
-    -h|--help) usage 1 && exit ;;
+    -h|--help) help=1; shift ;;
     -i|--interactive) interactive=1; shift ;;
+    -N|--no-color) no_color=1; shift ;;
     -o|--owner) changelog_opts+=(-o "$2"); shift 2;;
     -p|--previous-release) previous_release=1; shift ;;
     -r|--repo) changelog_opts+=(-r "$2"); shift 2 ;;
@@ -179,6 +183,8 @@ while true; do
 done
 
 range=("$@")
+
+[ -n "$help" ] && usage 1 && exit
 
 if [ -n "$previous_release" ]; then
   [ "${#range[@]}" -gt 0 ] && usage_error 'Cannot specify -p and RANGE'
