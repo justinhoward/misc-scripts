@@ -233,9 +233,9 @@ for line in "${changelog_json[@]}"; do
       fi
       msg "Description: $description"
 
-      prompt='(d)one,(m)ore,(e)dit,(s)kip,(g)ithub'
-      [ -n "$jira_issue" ] && prompt+=',(j)ira'
-      read -r -p "[$prompt]: " answer
+      prompt="($(color 4 d))one,($(color 4 m))ore,($(color 4 e))dit,($(color 4 s))kip,($(color 4 g))ithub"
+      [ -n "$jira_issue" ] && prompt+=",($(color 4 j))ira"
+      read -r -p "$prompt: " answer
       msg
       case "$answer" in
         d|done)
@@ -244,23 +244,23 @@ for line in "${changelog_json[@]}"; do
         m|more)
           (
             cat <<EOF
-GitHub #$number $title by $user
-::============================================::
+$(color 2 "GitHub #$number $title by $user")
+$(color 2 ─────────────────────────────────────────────────────────────────)
 $body
 EOF
 
             if [ -n "$jira_issue" ]; then
               cat <<EOF
 
-$jira_issue
-::============================================::
+$(color 2 "$jira_issue")
+$(color 2 ─────────────────────────────────────────────────────────────────)
 $jira_detail
 EOF
             fi
-          ) | "${PAGER:-less}"
+          ) | sed 's/\r$//' | "${PAGER:-less}"
           ;;
         e|edit)
-          read -r -p "Description: " new_description
+          read -r -p "Description: " -e new_description
           [ -n "$new_description" ] && description="$new_description"
           ;;
         s|skip)
