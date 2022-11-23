@@ -2,6 +2,7 @@
 
 set -e
 
+export PAGER="${PAGER:-less}"
 export LESS="$LESS -R"
 
 usage() {
@@ -184,7 +185,7 @@ done
 
 range=("$@")
 
-[ -n "$help" ] && usage 1 && exit
+[ -n "$help" ] && usage 1 2>&1 | LESS="$LESS -F" "$PAGER" && exit
 
 if [ -n "$previous_release" ]; then
   [ "${#range[@]}" -gt 0 ] && usage_error 'Cannot specify -p and RANGE'
@@ -263,7 +264,7 @@ $(color 2 ───────────────────────�
 $jira_detail
 EOF
             fi
-          ) | sed 's/\r$//' | "${PAGER:-less}"
+          ) | sed 's/\r$//' | "$PAGER"
           ;;
         e|edit)
           read -r -p "Description: " -e new_description
