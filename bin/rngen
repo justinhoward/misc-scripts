@@ -304,8 +304,10 @@ EOF
 done
 
 if [ "${#changelog_list[@]}" -gt 0 ]; then
-  repo_name="$(gh repo view --json name --jq .name)"
-  # shellcheck disable=2016
+  if [ -n "$tag_flag" ] || [ -n "$previous_release" ]; then
+    repo_name="$(gh repo view --json name --jq .name)"
+  fi
+
   if [ -n "$tag_flag" ]; then
     tag_date="$(date +'%Y.%m.%d')"
     tag_name="v$tag_date"
@@ -315,8 +317,10 @@ if [ "${#changelog_list[@]}" -gt 0 ]; then
       tag_name="v$tag_date.$tag_suffix"
     done
 
+    # shellcheck disable=2016
     printf '%s `%s`\n\n' "$repo_name" "$tag_name"
   elif [ -n "$previous_release" ]; then
+    # shellcheck disable=2016
     printf '%s `%s`\n\n' "$repo_name" "$latest"
   fi
 
