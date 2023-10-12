@@ -4,63 +4,115 @@ msg() {
   printf '%s\n' "$*" >&2
 }
 
-error_exit() {
+err() {
+  [ -z "$no_color" ] && tput setaf 1
   msg "$@"
+  [ -z "$no_color" ] && tput sgr0
+}
+
+error_exit() {
+  err "$@"
   exit 1
 }
 
 usage_error() {
-  [ "$#" -gt 0 ] && printf '%s\n\n' "$*" >&2
+  [ "$#" -gt 0 ] && err "$@" $'\n'
   usage
   exit 1
+}
+
+getopt_error() {
+  usage_error "$(echo "$1" | sed -n 's/.*: //1p')"
 }
 
 verbose() {
   [ -n "$verbose" ] && msg "$@"
 }
 
+color() {
+  [ -z "$no_color" ] && tput setaf "$1"
+  echo -n "${@:2}"
+  [ -z "$no_color" ] && tput sgr0
+}
+
 usage() {
+  summary
+  msg && arguments
+  [ -n "$1" ] && msg && examples
+}
+
+summary() {
   cat >&2 <<EOF
-Usage: kms-encrypt [OPTIONS] KMS_KEY_ALIAS
-
+Usage: $(color 2 "$(basename "$0")") [OPTIONS] KMS_KEY_ALIAS
 Encrypt a value with KMS
-
-  $ kms-encrypt app-production
-  plaintext: <enter value>
-
-  $ kms-encrypt app-production < key.pem
-
-KMS_KEY_ALIAS
-
-  The alias for the KMS key to encrypt with
-
-STDIN
-
-  If STDIN is a tty, it will prompt for plaintext input. Otherwise, the plaintext
-  will be taken from STDIN. This can be used to pipe plaintext into kms-encrypt.
-
-OPTIONS
-  -B          No Base64 - Do not Base64 encode the result
-  -h          Help - Show this help message
-  -p profile  Profile - An AWS CLI configuration profile
-  -r region   Region - An AWS region
-  -v          Verbose - Print verbose messaging
 EOF
 }
 
-while getopts :Bhp:r:v opt; do
-  case "$opt" in
-    B) no_base64=1 ;;
-    h) usage && exit ;;
-    p) profile="$OPTARG" ;;
-    r) region="$OPTARG" ;;
-    v) verbose=1 ;;
-    \?) usage_error "Invalid option -${OPTARG}";;
-    :) usage_error "Option -${OPTARG} requires an argument" ;;
+arguments() {
+  cat >&2 <<EOF
+$(color 3 CIPHERTEXT)
+The KMS-encrypted ciphertext to decrypt. If not given, the ciphertext will be
+taken from STDIN.
+
+$(color 3 KMS_KEY_ALIAS)
+The alias for the KMS key to encrypt with
+
+$(color 3 STDIN)
+If STDIN is a tty, it will prompt for plaintext input. Otherwise, the plaintext
+will be taken from STDIN. This can be used to pipe plaintext into kms-encrypt.
+
+$(color 3 OPTIONS)
+$(color 2 "-B|--no-base64")       Value is not base64 encoded
+$(color 2 "-h|--help")            Show this help message
+$(color 2 "-N|--no-color")        Don't output any ANSI colors
+$(color 2 "-p|--profile")         An AWS CLI configuration profile
+$(color 2 "-r|--region")          An AWS region
+$(color 2 "-v|--verbose")         Print verbose messaging
+EOF
+}
+
+examples() {
+  cat >&2 <<EOF
+$(color 3 EXAMPLES)
+$ kms-encrypt app-production
+plaintext: <enter value>
+
+$ kms-encrypt app-production < key.pem
+EOF
+}
+
+shortopts='BhNp:r:v'
+longopts='no-base64,help,no-color,profile:,region:,verbose'
+
+if ! getopt -T > /dev/null; then
+  options="$(getopt \
+    --options "$shortopts" \
+    --long "$longopts" \
+    -n "$(basename "$0")" \
+    -- "$@" \
+  2>&1)" || getopt_error "$options"
+else
+  options="$(getopt \
+    "$shortopts" \
+    "$@" \
+  2>&1)" || getopt_error "$options"
+fi
+
+eval set -- "$options"
+
+while true; do
+  case "$1" in
+    -B|--no-base64) no_base64=1; shift ;;
+    -h|--help) help=1; shift ;;
+    -N|--no-color) no_color=1; shift ;;
+    -p|--profile) profile="$2"; shift 2 ;;
+    -r|--region) region="$2"; shift 2 ;;
+    -v|--verbose) verbose=1; shift ;;
+    --) shift; break ;;
   esac
 done
 
-shift $((OPTIND - 1))
+[ -n "$help" ] && usage 1 2>&1 | LESS="$LESS -F" "$PAGER" && exit
 
 if [ $# -ne 1 ]; then
   usage_error 'Expected a single KMS_KEY_ALIAS argument'

@@ -44,7 +44,7 @@ usage() {
 summary() {
   cat >&2 <<EOF
 Usage: $(color 2 "$(basename "$0")") [OPTIONS] [CIPHERTEXT]
-Encrypt a value with KMS
+Decrypt a value with KMS
 EOF
 }
 
@@ -98,7 +98,7 @@ eval set -- "$options"
 while true; do
   case "$1" in
     -B|--no-base64) not_base64=1; shift ;;
-    -f|--force-stdout) force_stdout=1; shift ;;
+    -f|--force-output) force_stdout=1; shift ;;
     -h|--help) help=1; shift ;;
     -N|--no-color) no_color=1; shift ;;
     -p|--profile) profile="$2"; shift 2 ;;
