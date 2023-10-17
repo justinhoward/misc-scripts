@@ -72,8 +72,8 @@ $(color 4 Specifying Columns)
 
 $(color 4 Filtering by Tags)
 \$ ssmc web -t Environment=production
-1) parentsquare-production-web
-2) parentsquare-production-web
+1) production-web
+2) production-web
 EOF
 }
 
