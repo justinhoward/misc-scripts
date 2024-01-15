@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+err() {
+  [ -z "$no_color" ] && tput setaf 1
+  msg "$@"
+  [ -z "$no_color" ] && tput sgr0
+}
+
+error_exit() {
+  err "$@"
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && err "$@" $'\n'
+  usage
+  exit 1
+}
+
+getopt_error() {
+  usage_error "$(echo "$1" | sed -n 's/.*: //1p')"
+}
+
+verbose() {
+  [ -n "$verbose" ] && msg "$@"
+}
+
+exec_verbose() {
+  if ! output="$("$@" 2>&1)" || [ -n "$verbose" ]; then
+    err "$output"
+  fi
+}
+
+color() {
+  [ -z "$no_color" ] && tput setaf "$1"
+  echo -n "${@:2}"
+  [ -z "$no_color" ] && tput sgr0
+}
+
+usage() {
+  summary
+  msg && arguments
+  [ -n "$1" ] && msg && examples
+}
+
+summary() {
+  cat >&2 <<EOF
+Usage: $(color 2 "$(basename "$0")") [OPTIONS] [USERNAME...]
+Add IAM users to AWS
+EOF
+}
+
+arguments() {
+  cat >&2 <<EOF
+$(color 3 USERNAME)
+The user names to add. If not given, a list of usernames (one per line) will be
+read from STDIN.
+
+$(color 3 OPTIONS)
+$(color 2 "-g|--group") GROUP     A group name to add all users to. Multiple values
+                     are allowed
+$(color 2 "-f|--force-output")    Force outputting passwords to STDOUT
+$(color 2 "-h|--help")            Show this help message
+$(color 2 "-L|--no-login")        Don't create login profiles or passwords for users
+$(color 2 "-N|--no-color")        Don't output any ANSI colors
+$(color 2 "-p|--profile")         An AWS CLI configuration profile
+$(color 2 "-r|--region")          An AWS region
+$(color 2 "-v|--verbose")         Print verbose messaging
+EOF
+}
+
+examples() {
+  cat >&2 <<EOF
+$(color 3 EXAMPLES)
+$ iam-add-user justin_howard -g developers > passwords.tsv
+justin_howard	zcf2jen!WMX-wte@dcr
+
+$ iam-add-user < users.txt > passwords.tsv
+justin_howard	bnv3cec3ckw_mdn1AKV
+john_smith	HBP8chp9kjy6nae*qrt
+EOF
+}
+
+shortopts='g:fhLNp:r:v'
+longopts='group:,force-output,help,no-login,no-color,profile:,region:,verbose'
+
+if ! getopt -T > /dev/null; then
+  options="$(getopt \
+    --options "$shortopts" \
+    --long "$longopts" \
+    -n "$(basename "$0")" \
+    -- "$@" \
+  2>&1)" || getopt_error "$options"
+else
+  options="$(getopt \
+    "$shortopts" \
+    "$@" \
+  2>&1)" || getopt_error "$options"
+fi
+
+eval set -- "$options"
+
+password_length=24
+password_alphabet='_A-Z-a-z-0-9\-!@#$%^&*()<>?/.,:;}{][+=' 
+login=1
+while true; do
+  case "$1" in
+    -f|--force-output) force_stdout=1; shift ;;
+    -g|--group) groups+=("$2"); shift 2 ;;
+    -h|--help) help=1; shift ;;
+    -L|--no-login) login=; shift ;;
+    -N|--no-color) no_color=1; shift ;;
+    -p|--profile) profile="$2"; shift 2 ;;
+    -r|--region) region="$2"; shift 2 ;;
+    -v|--verbose) verbose=1; shift ;;
+    --) shift; break ;;
+  esac
+done
+
+[ -n "$help" ] && usage 1 2>&1 | LESS="$LESS -F" "$PAGER" && exit
+
+if [ $# -eq 0 ] && [ -t 0 ]; then
+  usage_error 'No username given'
+fi
+
+if ! command -v aws >/dev/null 2>&1; then
+  error_exit 'The aws CLI is required'
+fi
+
+if [ -t 1 ] && [ -z "$force_stdout" ]; then
+  usage_error 'Refusing to output plaintext to STDOUT. Pipe to a file or use -f'
+fi
+
+aws_args=(--no-cli-pager)
+[ -n "$profile" ] && aws_args+=(--profile "$profile")
+[ -n "$region" ] && aws_args+=(--region "$region")
+
+verbose "Profile: ${profile:-(default)}"
+verbose "Region: ${region:-(default)}"
+
+generate_password() {
+  openssl rand 1024 | tr -dc "$password_alphabet" | head -c "$password_length"
+}
+
+usernames=("$@")
+if [ "${#usernames[@]}" = 0 ]; then
+  IFS=$'\n' read -ra usernames
+fi
+
+for username in "${usernames[@]}"; do
+  exec_verbose aws iam create-user \
+    "${aws_args[@]}" \
+    --user-name "$username" \
+  || error_exit "Could not create user for ${username}"
+  printf '%s' "$username"
+
+  if [ -n "$login" ]; then
+    password="$(generate_password)"
+    exec_verbose aws iam create-login-profile \
+      "${aws_args[@]}" \
+      --user-name "$username" \
+      --password "$password" \
+      --password-reset-required \
+    || error_exit "Could not create login profile for ${username}"
+  fi
+  printf '\t%s' "$password"
+
+  for group in "${groups[@]}"; do
+    exec_verbose aws iam add-user-to-group \
+      "${aws_args[@]}" \
+      --group-name "$group" \
+      --user-name "$username" \
+    || error_exit "Could not add ${username} to group ${group}"
+  done
+  printf '\n'
+done
