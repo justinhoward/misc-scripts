@@ -32,7 +32,10 @@ verbose() {
 exec_verbose() {
   if ! output="$("$@" 2>&1)" || [ -n "$verbose" ]; then
     err "$output"
+    return 1
   fi
+
+  return 0
 }
 
 color() {
@@ -148,7 +151,9 @@ generate_password() {
 
 usernames=("$@")
 if [ "${#usernames[@]}" = 0 ]; then
-  IFS=$'\n' read -ra usernames
+  while read -r username; do
+    usernames+=("$username")
+  done
 fi
 
 for username in "${usernames[@]}"; do
