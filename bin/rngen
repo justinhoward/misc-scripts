@@ -131,11 +131,11 @@ jira_url() {
 }
 
 if ! command -v gh-changelog > /dev/null; then
-  error_exit 'gh-changelog is required'
+  error_exit 'gh-changelog is required https://github.com/justinhoward/misc-scripts/blob/master/bin/gh-changelog'
 fi
 
 if ! command -v jira-terminal > /dev/null; then
-  error_exit 'jira-terminal is required'
+  error_exit 'jira-terminal is required https://github.com/amritghimire/jira-terminal'
 fi
 
 if ! command -v gh > /dev/null; then
