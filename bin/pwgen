@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+
+set -e
+
+export PAGER="${PAGER:-less}"
+export LESS="$LESS -R"
+
+usage() {
+  summary
+  msg && arguments
+  [ -n "$1" ] && msg && examples
+}
+
+summary() {
+  cat >&2 <<EOF
+Usage: $(color 2 "$(basename "$0")") [OPTIONS]
+Generate a random password
+EOF
+}
+
+arguments() {
+  cat >&2 <<EOF
+$(color 3 OPTIONS)
+$(color 2 "-a|--alphabet")          Specify an alphabet. One of (mixed,alphanum,alpha,num).
+                       Default: mixed
+$(color 2 "-f|--force-output")      Force outputting plaintext to STDOUT
+$(color 2 "-h|--help")              Show this help message
+$(color 2 "-l|--length")            Password length. Default 24.
+$(color 2 "-N|--no-color")          Don't output any ANSI colors
+EOF
+}
+
+examples() {
+  cat >&2 <<EOF
+$(color 3 EXAMPLES)
+
+$(color 4 Copy to Clipboard)
+$ pwgen | pbcopy
+# Copy a password with the default settings to the clipboard
+
+$(color 4 Options)
+$ pwgen -l 32 -a alpha -f
+jrbwJZeIsPlQtcEIzYteJEWN
+EOF
+}
+
+msg() {
+  printf '%s\n' "$*" >&2
+}
+
+verbose() {
+  [ -n "$verbose" ] && msg "$@"
+}
+
+color() {
+  [ -z "$no_color" ] && tput setaf "$1"
+  echo -n "${@:2}"
+  [ -z "$no_color" ] && tput sgr0
+}
+
+err() {
+  [ -z "$no_color" ] && tput setaf 1
+  msg "$@"
+  [ -z "$no_color" ] && tput sgr0
+}
+
+error_exit() {
+  err "$@"
+  exit 1
+}
+
+usage_error() {
+  [ "$#" -gt 0 ] && err "$@" $'\n'
+  usage
+  exit 1
+}
+
+getopt_error() {
+  usage_error "$(echo "$1" | sed -n 's/.*: //1p')"
+}
+shortopts='a:fhl:N'
+longopts='alphabet:force-output,help,length,no-color'
+if ! getopt -T > /dev/null; then
+  options="$(getopt \
+    --options "$shortopts" \
+    --long "$longopts" \
+    -n "$(basename "$0")" \
+    -- "$@" \
+  2>&1)" || getopt_error "$options"
+else
+  options="$(getopt \
+    "$shortopts" \
+    "$@" \
+  2>&1)" || getopt_error "$options"
+fi
+
+eval set -- "$options"
+
+while true; do
+  case "$1" in
+    -a|--alphabet) alphabet="$2"; shift 2 ;;
+    -f|--force-output) force_output=1; shift ;;
+    -h|--help) help=1; shift ;;
+    -l|--length) length="$2"; shift 2 ;;
+    -N|--no-color) no_color=1; shift ;;
+    --) shift; break ;;
+  esac
+done
+
+[ -n "$help" ] && usage 1 2>&1 | LESS="$LESS -F" "$PAGER" && exit
+
+if ! command -v openssl > /dev/null; then
+  error_exit 'The openssl command is required'
+fi
+
+[ -z "$alphabet" ] && alphabet=mixed
+case "$alphabet" in
+  mixed) alpha_chars='A-Z-a-z-0-9_\-!@#$%^&*()<>?/.,:;}{][+=' ;;
+  alphanum) alpha_chars='A-Z-a-z0-9'  ;;
+  alpha) alpha_chars='A-Z-a-z' ;;
+  num) alpha_chars='0-9' ;;
+  *) usage_error "Invalid alphabet ${alphabet}"
+esac
+
+if [ -t 1 ] && [ -z "$force_output" ]; then
+  usage_error 'Refusing to output password to STDOUT. Pipe the output or use -f'
+fi
+
+[ -z "$length" ] && length=24
+if [ "$length" -lt 1 ]; then
+  usage_error 'Length must be a number > 0'
+fi
+
+openssl rand "$(( length * 128 ))" | tr -dc "$alpha_chars" | head -c "$length"
+# Add a newline if printing to a TTY
+[ -t 1 ] && printf '\n'
