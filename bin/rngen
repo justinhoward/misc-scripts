@@ -163,7 +163,7 @@ fi
 
 if ! command -v jira > /dev/null; then
   if command -v jira-terminal > /dev/null; then
-    err 'using jira-terminal with rngen is deprecated, use jira-cli'
+    err 'using jira-terminal with rngen is deprecated, use jira-cli https://github.com/ankitpokhrel/jira-cli'
   else
     error_exit 'jira-cli is required https://github.com/ankitpokhrel/jira-cli'
   fi
