@@ -144,7 +144,7 @@ jira_summary_from_detail() {
   if ! command -v jira >/dev/null 2>&1; then
     echo "$jira_detail" | head -1
   else
-    echo "$1" | tail -n+4 |head -n1 | sed 's/\s*#\s*//' | sed 's/\s*$//'
+    echo "$1" | tail -n+4 |head -n1 | sed 's/\s*#\s*//' | awk '{$1=$1};1'
   fi
 }
 
