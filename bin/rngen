@@ -248,8 +248,9 @@ for line in "${changelog_json[@]}"; do
   number="$(echo "$line" | jq -r .number)"
   user="$(echo "$line" | jq -r .user.login)"
   body="$(echo "$line" | jq -r .body)"
+  head_branch="$(echo "$line" | jq -r .head.ref)"
   gh_url="$(echo "$line" | jq -r .html_url)"
-  jira_issue="$(echo "$title $body" | grep -oE '[A-Z]{2,8}-[0-9]{1,6}' | head -1)"
+  jira_issue="$(echo "$title $body $head_branch" | grep -oE '[A-Z]{2,8}-[0-9]{1,6}' | head -1)"
   if [ -n "$jira_issue" ]; then
     jira_issues+=("$jira_issue")
     set -o pipefail
