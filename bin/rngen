@@ -393,7 +393,7 @@ if [ "${#changelog_list[@]}" -gt 0 ]; then
 fi
 
 if [ -n "$close_jira" ]; then
-  jira_issues_unique=$(printf "%s\n" "${jira_issues[@]}" | sort -u')
+  jira_issues_unique=$(printf "%s\n" "${jira_issues[@]}" | sort -u)
   for issue in "${jira_issues_unique[@]}"; do
     jira_close "$issue" && msg "Closed $issue"
   done
