@@ -133,18 +133,18 @@ while true; do
 
   while read -r line; do
     number="$(echo "$line" | jq -r .number)"
-    merge_commit_sha="$(echo "$line" | jq -r .merge_commit_sha)"
+    head_sha="$(echo "$line" | jq -r .head.sha)"
 
-    if [ -z "$merge_commit_sha" ]; then
-      verbose "No merge commit for #${number}. Skipping"
+    if [ -z "$head_sha" ]; then
+      verbose "No merged commit for #${number}. Skipping"
       continue
     fi
 
-    if [ -n "${range_refs[$merge_commit_sha]}" ]; then
-      verbose "Adding #${number} for ${merge_commit_sha}"
-      found_refs["$merge_commit_sha"]="$line"
+    if [ -n "${range_refs[$head_sha]}" ]; then
+      verbose "Adding #${number} for ${head_sha}"
+      found_refs["$head_sha"]="$line"
     else
-      verbose "${merge_commit_sha} not found"
+      verbose "${head_sha} not found"
       not_found=$((not_found + 1))
     fi
   done < <(echo "$prs")
