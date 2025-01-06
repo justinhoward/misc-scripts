@@ -116,6 +116,7 @@ verbose "Range: ${range[*]}"
 declare -A range_refs
 while read -r ref; do
   range_refs["$ref"]=1
+  verbose "git ref in range: ${ref}"
 done < <(git rev-list "${range[@]}")
 
 page=1
@@ -132,12 +133,17 @@ while true; do
   [ -z "$prs" ] && break
 
   while read -r line; do
-    number="$(echo "$line" | jq -r .number)"
-    merge_commit_sha="$(echo "$line" | jq -r .merge_commit_sha)"
+    number="$(echo "$line" | jq -r '.number | select(type == "number")')"
+    if [ -z "$number" ]; then
+      error_exit "Found PR without number. Exiting: ${line}"
+    fi
+
+    merge_commit_sha="$(echo "$line" | jq -r '.merge_commit_sha | select(type == "string")')"
     if [ -n "$merge_commit_sha" ]; then
       search_sha="$merge_commit_sha"
     else
-      search_sha="$(echo "$line" | jq -r .head.sha)"
+      verbose "No merge commit for #${number}. Trying head.sha"
+      search_sha="$(echo "$line" | jq -r '.head.sha | select(type == "string")')"
     fi
 
     if [ -z "$search_sha" ]; then
@@ -149,7 +155,7 @@ while true; do
       verbose "Adding #${number} for ${search_sha}"
       found_refs["$search_sha"]="$line"
     else
-      verbose "${search_sha} not found"
+      verbose "PR #${number} commit ${search_sha} not found in ${branch}"
       not_found=$((not_found + 1))
     fi
   done < <(echo "$prs")
