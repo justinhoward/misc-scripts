@@ -27,6 +27,8 @@ latest tag to the current HEAD.
 $(color 3 OPTIONS)
 $(color 2 "-b|--branch") BRANCH     The git branch to operate on (default HEAD)
 $(color 2 "-c|--close-jira")        Closes all jira issues
+$(color 2 "-f|--force-deploy")      Add [force deploy] to tag messages and deploy even if there
+                                      are no PRs to generate notes for.
 $(color 2 "-h|--help")              Show this help message
 $(color 2 "-i|--interactive")       Review release notes interactively. Interactive output is 
                          sent to STDERR so notes can still be piped
@@ -177,8 +179,8 @@ if ! command -v jq > /dev/null; then
   error_exit 'The jq JSON parser is required https://stedolan.github.io/jq/'
 fi
 
-shortopts='b:chiNo:pr:s:tTv'
-longopts='branch:,close-jira,help,interactive,no-color,owner:,previous-release,repo:,max-skips:,tag,signed-tag,verbose'
+shortopts='b:cfhiNo:pr:s:tTv'
+longopts='branch:,close-jira,force-deploy,help,interactive,no-color,owner:,previous-release,repo:,max-skips:,tag,signed-tag,verbose'
 
 if ! getopt -T > /dev/null; then
   options="$(getopt \
@@ -200,6 +202,7 @@ while true; do
   case "$1" in
     -b|--branch) changelog_opts+=(-b "$2"); branch="$2"; shift 2;;
     -c|--close-jira) close_jira=1; shift ;;
+    -f|--force-deploy) force_deploy=1; shift ;;
     -h|--help) help=1; shift ;;
     -i|--interactive) interactive=1; shift ;;
     -N|--no-color) no_color=1; shift ;;
@@ -338,7 +341,7 @@ EOF
   fi
 done
 
-if [ "${#changelog_list[@]}" -gt 0 ]; then
+if [ "${#changelog_list[@]}" -gt 0 ] || [ -n "$force_deploy" ]; then
   if [ -n "$tag_flag" ] || [ -n "$previous_release" ]; then
     repo_name="$(gh repo view --json name --jq .name)"
   fi
@@ -359,15 +362,25 @@ if [ "${#changelog_list[@]}" -gt 0 ]; then
     printf '%s `%s`\n\n' "$repo_name" "$latest"
   fi
 
-  detail_msg="$(printf '%s\n' "${detail_list[@]}")"
-  printf '%s\n' "$detail_msg"
+  if [ "${#detail_list[@]}" -gt 0 ]; then
+    detail_msg="$(printf '%s\n' "${detail_list[@]}")"
+    printf '%s\n' "$detail_msg"
+  fi
 
-  changelog_msg="$(printf '%s\n' "${changelog_list[@]}")"
-  # shellcheck disable=2016
-  printf '\n```\n%s\n```\n' "$changelog_msg"
+  if [ "${#changelog_list[@]}" -gt 0 ]; then
+    changelog_msg="$(printf '%s\n' "${changelog_list[@]}")"
+    # shellcheck disable=2016
+    printf '\n```\n%s\n```\n' "$changelog_msg"
+  fi
 
   if [ -n "$tag_flag" ]; then
-    tag_msg="$(printf 'Release %s\n\n%s' "$tag_name" "$changelog_msg")"
+    tag_title="$tag_name"
+    if [ -n "$force_deploy" ]; then
+      err "--force-deploy flag is set, adding [force deploy] to the tag message"
+      tag_title+=' [force deploy]'
+    fi
+
+    tag_msg="$(printf 'Release %s\n\n%s' "$tag_title" "$changelog_msg")"
     git tag -"$tag_flag" -m "$tag_msg" "$tag_name"
 
     msg "Tagged release $tag_name"
