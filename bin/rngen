@@ -405,7 +405,6 @@ if [ "${#changelog_list[@]}" -gt 0 ] || [ -n "$force_deploy" ]; then
 fi
 
 if [ -n "$close_jira" ]; then
-  for issue in "${jira_issues[@]}"; do
   jira_issues_unique=$(printf "%s\n" "${jira_issues[@]}" | sort -u)
   for issue in "${jira_issues_unique[@]}"; do
     jira_comment "$issue" "Release: $repo_name $tag_name"
