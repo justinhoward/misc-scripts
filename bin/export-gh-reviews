@@ -1,0 +1,265 @@
+#!/bin/bash
+
+set -e
+
+repo=""
+start_date=
+end_date=
+limit=
+verbose=
+no_color=
+page_size=100
+
+# Check if terminal supports colors
+if [ ! -t 1 ] || [ ! -t 2 ]; then
+    no_color=1
+fi
+
+# Output functions
+msg() {
+    echo "$@" >&2
+}
+
+verbose() {
+    [ -n "$verbose" ] && msg "$@"
+    true
+}
+
+color() {
+    if [ -z "$no_color" ]; then
+        tput setaf "$1" 2>/dev/null
+        echo -n "${@:2}"
+        tput sgr0 2>/dev/null
+    else
+        echo -n "${@:2}"
+    fi
+}
+
+err() {
+    if [ -z "$no_color" ]; then
+        tput setaf 1 2>/dev/null
+        msg "$@"
+        tput sgr0 2>/dev/null
+    else
+        msg "$@"
+    fi
+}
+
+# Documentation functions
+usage() {
+    summary
+    msg
+    arguments
+    [ -n "$1" ] && msg && examples
+}
+
+summary() {
+    cat >&2 <<EOF
+Usage: $(color 2 "$(basename "$0")") [OPTIONS]
+Fetch merged GitHub pull requests with comments and code context.
+Outputs JSON lines format with PR data and comments to STDOUT.
+EOF
+}
+
+arguments() {
+    cat >&2 <<EOF
+$(color 3 "OPTIONS")
+    $(color 2 "-R, --repo REPO")       Repository to fetch PRs from (format: owner/repo)
+    $(color 2 "-s, --start DATE")      Start date (YYYY-MM-DD, default: no limit)
+    $(color 2 "-e, --end DATE")        End date (YYYY-MM-DD, default: no limit)
+    $(color 2 "-l, --limit NUM")       Maximum number of PRs to fetch (default: no limit)
+    $(color 2 "-v, --verbose")         Enable verbose output to STDERR
+    $(color 2 "-N, --no-color")        Disable colorized output
+    $(color 2 "-h, --help")            Show this help message
+EOF
+}
+
+examples() {
+    cat >&2 <<EOF
+$(color 3 "EXAMPLES")
+    # Fetch all PRs from the current repository
+    $(color 2 "$0") | tee all_prs.json
+
+    # Fetch PRs from a specific repository
+    $(color 2 "$0 -R owner/repo") | tee pr_data.json
+
+    # Fetch PRs from a specific date range
+    $(color 2 "$0 -s 2024-01-01 -e 2024-03-20") | tee jan_to_mar.json
+
+    # Fetch only the 5 most recent PRs
+    $(color 2 "$0 -l 5") | tee recent_prs.json
+EOF
+}
+
+# Convert ISO 8601 timestamp to YYYY-MM-DD for comparison
+iso_to_date() {
+    local iso_timestamp="$1"
+    # Extract just the date part (YYYY-MM-DD) from ISO 8601 timestamp
+    echo "$iso_timestamp" | cut -d'T' -f1
+}
+
+# Parse command line arguments
+shortopts='R:s:e:l:vhN'
+longopts='repo:,start:,end:,limit:,verbose,help,no-color'
+
+if ! getopt -T > /dev/null; then
+    # GNU getopt
+    options="$(getopt \
+        --options "$shortopts" \
+        --long "$longopts" \
+        -n "$(basename "$0")" \
+        -- "$@" \
+        2>&1)" || exit 1
+else
+    # Legacy getopt (macOS)
+    options="$(getopt \
+        "$shortopts" \
+        "$@" \
+        2>&1)" || exit 1
+fi
+
+eval set -- "$options"
+
+while true; do
+    case "$1" in
+        -R|--repo)
+            repo="$2"
+            shift 2
+            ;;
+        -s|--start)
+            start_date="$2"
+            shift 2
+            ;;
+        -e|--end)
+            end_date="$2"
+            shift 2
+            ;;
+        -l|--limit)
+            limit="$2"
+            shift 2
+            ;;
+        -v|--verbose)
+            verbose=1
+            shift
+            ;;
+        -N|--no-color)
+            no_color=1
+            shift
+            ;;
+        -h|--help)
+            usage 1
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            err "Unknown option: $1"
+            usage 1
+            exit 1
+            ;;
+    esac
+done
+
+# Set default option values
+[ -z "$repo" ] && repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+
+if [ -n "$start_date" ] && [ -n "$end_date" ] && [ "$start_date" \> "$end_date" ]; then
+    err "Error: start date ($start_date) cannot be after end date ($end_date)"
+    exit 1
+fi
+
+fetch_pr_data() {
+    local pr_number=$1
+    local pr_view_args=(
+        "$pr_number"
+        --json 'number,title,body,author,createdAt,mergedAt,state,url,additions,deletions,changedFiles,commits,reviews,comments'
+        --jq '.'
+    )
+
+    [ -n "$repo" ] && pr_view_args+=(-R "$repo")
+
+    verbose "Fetching data for PR #$pr_number"
+
+    local pr_output
+    if ! pr_output=$(gh pr view "${pr_view_args[@]}" 2>&1); then
+        err "Failed to fetch PR #$pr_number:"
+        err "$pr_output"
+        exit 1
+    fi
+
+    local review_comments
+    if ! review_comments=$(gh api "repos/$repo/pulls/$pr_number/comments" 2>&1); then
+        err "Failed to fetch review comments for PR #$pr_number:"
+        err "$review_comments"
+        exit 1
+    fi
+
+    # Process valid JSON output
+    echo "$pr_output" | jq -c --arg pr_number "$pr_number" \
+        --arg repo "$repo" \
+        --argjson review_comments "$review_comments" \
+        '. + {
+            "repo": $repo,
+            "review_comments": $review_comments
+        }'
+}
+
+
+# Streams PR numbers and updated_at timestamps from the GitHub API.
+paginate_prs() {
+    local api_path="repos/$repo/pulls"
+    local query="state=closed&sort=updated&direction=desc"
+
+    # Always use page_size for pagination, we'll handle the limit in the main loop
+    # because we don't know how many results we'll need to get to that limit after filtering
+    query="$query&per_page=$page_size"
+
+    # Use gh api to auto-paginate and perform authorization
+    # Return both PR number and updated_at for date filtering
+    # Example: 123456|2024-01-01T00:00:00Z
+    gh api --paginate "$api_path?$query" --jq '.[] | select(.merged_at != null) | "\(.number)|\(.updated_at)"' || {
+        err "Failed to fetch PRs from GitHub API"
+        exit 1
+    }
+}
+
+# Main execution
+msg="Fetching merged pull requests from $repo"
+[ -n "$start_date" ] && msg+=" from $start_date"
+[ -n "$end_date" ] && msg+=" to $end_date"
+[ -n "$limit" ] && msg+=" (limit: $limit)"
+verbose "$msg"
+
+# Loop through PRs until we hit our limit, or process all of them
+processed_prs=0
+while IFS='|' read -r pr_number updated_at; do
+    pr_date=$(iso_to_date "$updated_at")
+    verbose "Checking PR #$pr_number (updated: $pr_date)"
+
+    # Since PRs are sorted by updated_at desc, if we've gone past start_date, we can stop
+    if [ -n "$start_date" ] && [ "$pr_date" \< "$start_date" ]; then
+        verbose "PR #$pr_number updated on $pr_date is before start date $start_date, stopping pagination"
+        break
+    fi
+
+    # Skip PRs that are after the end date
+    if [ -n "$end_date" ] && [ "$pr_date" \> "$end_date" ]; then
+        verbose "PR #$pr_number updated on $pr_date is after end date $end_date, skipping"
+        continue
+    fi
+
+    # PR is within our date range, process it
+    ((processed_prs++))
+    verbose "Processing PR #$pr_number"
+    fetch_pr_data "$pr_number"
+
+    # Check if we've reached the limit
+    if [ -n "$limit" ] && [ "$processed_prs" -ge "$limit" ]; then
+        verbose "Reached limit of $limit PRs"
+        break
+    fi
+done < <(paginate_prs)
+
+verbose "Done processing $processed_prs PRs"
