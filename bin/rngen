@@ -138,7 +138,7 @@ jira_issue_detail() {
   if ! command -v jira >/dev/null 2>&1; then
     jira-terminal detail "$1" | tail -n+2
   else
-    jira issue view "$1"
+    jira issue view --raw "$1"
   fi
 }
 
@@ -146,7 +146,7 @@ jira_summary_from_detail() {
   if ! command -v jira >/dev/null 2>&1; then
     echo "$jira_detail" | head -1
   else
-    echo "$1" | tail -n+4 |head -n1 | sed 's/\s*#\s*//' | awk '{$1=$1};1'
+    echo "$1" | jq -r .fields.summary
   fi
 }
 
@@ -256,6 +256,7 @@ detail_list=()
 jira_issues=()
 for line in "${changelog_json[@]}"; do
   title="$(echo "$line" | jq -r .title)"
+  description=''
   number="$(echo "$line" | jq -r .number)"
   user="$(echo "$line" | jq -r .user.login)"
   body="$(echo "$line" | jq -r .body)"
@@ -274,7 +275,9 @@ for line in "${changelog_json[@]}"; do
 
   if [ -n "$jira_issue" ]; then
     description="$(jira_summary_from_detail "$jira_detail")"
-  else
+  fi
+
+  if [ -z "$description" ]; then
     description="$title"
   fi
 
